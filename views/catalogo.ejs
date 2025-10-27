@@ -9,12 +9,13 @@
 </head>
 
 <body>
+  <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
   <!-- NAVBAR -->
   <div class="nav">
     <a href="/catalogo" class="active">Catálogo</a>
     <a href="/entradas">Entradas</a>
-    <a href="/salidas">Salidas</a>
     <a href="/inventario">Inventario</a>
+    <a href="/salidas">Salidas</a>
     <a href="/clientes">Clientes</a>
     <a href="/cotizaciones">Cotizaciones</a>
 
@@ -22,7 +23,6 @@
       <a href="/usuarios">Usuarios</a> <!-- Solo visible para administradores -->
       <% } %>
 
-        <a href="/logout" class="btn-logout" style="margin-left:auto;">Cerrar sesión</a>
   </div>
 
   <!-- CONTENEDOR PRINCIPAL -->
@@ -92,5 +92,7 @@
     </table>
   </main>
 </body>
-
+<form action="/logout" method="get">
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
+</form>
 </html>

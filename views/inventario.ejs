@@ -9,28 +9,29 @@
 <body>
     <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
   <div class="nav">
-    <a href="/catalogo">Catálogo</a>
+     <a href="/catalogo">Catálogo</a>
     <a href="/entradas">Entradas</a>
-    <a href="/salidas">Salidas</a>
     <a href="/inventario" class="active">Inventario</a>
+    <a href="/salidas">Salidas</a>
     <a href="/clientes">Clientes</a>
     <a href="/cotizaciones">Cotizaciones</a>
-    <% if (usuario && usuario.puesto === 'administrador') { %>
-    <a href="/usuarios">Usuarios</a>
-  <% } %>
+
+
+    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
+      <a href="/usuarios">Usuarios</a> <!-- Solo visible para administradores -->
+      <% } %>
+
   </div>
-  
-  <main class="contenedor">
+  <main class="contenedor" style="padding: 2rem; max-width: 2000px; margin:auto;">
 
     <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
-    <a href="/reporte" target="_blank">
-    <button class="btn btn3">📄 Compartir Inventario</button>
-    </a>
+      <a href="/reporte" target="_blank">
+        <button class="btn btn3">📄 Compartir Inventario</button>
+      </a>
     </div>
 
-
     <h2>Inventario Actual</h2>
-    
+
     <table>
       <thead>
         <tr>
@@ -43,35 +44,42 @@
         </tr>
       </thead>
 
-      
       <tbody>
         <% inventario.forEach(i => { %>
           <tr>
             <td><%= i.ProductoNombre %></td>
-            <td><%= i.Lote %></td>
-            <td><%= i.Stock %></td>
-            <td>
-           <%= new Date(i.Caducidad).toLocaleDateString('es-MX', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-           }) %>
-            </td>
-            <td><%= i.Dias_Restantes_a_Caducar %></td>
-            <td class="<%= 
-            i.Estado === 'Vigente' ? 'estado-verde' : 
-            i.Estado === 'Próximo a vencer' ? 'estado-amarillo' : 
-            'estado-rojo' %>">
-            <%= i.Estado %>
-          </td>
+            <td><%= i.lote_inventario %></td>
+            <td><%= i.stock_inventario %></td>
 
+            <!-- Fecha formateada de forma segura -->
+            <td>
+              <% if (i.caducidad_inventario) { %>
+                <%= new Date(i.caducidad_inventario).toLocaleDateString('es-MX', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric'
+                }) %>
+              <% } else { %>
+                -
+              <% } %>
+            </td>
+
+            <td><%= i.diasRestantes_inventario || i.DiasRestantes || '-' %></td>
+
+            <td class="<%= 
+              i.estadoDelProducto_inventario === 'Vigente' ? 'estado-verde' :
+              i.estadoDelProducto_inventario === 'Próximo a vencer' ? 'estado-amarillo' :
+              'estado-rojo' %>">
+              <%= i.estadoDelProducto_inventario %>
+            </td>
           </tr>
         <% }) %>
       </tbody>
     </table>
   </main>
-</body>
-<form action="/logout" method="get">
+
+  <form action="/logout" method="get">
     <a href="/logout" class="btn-logout">Cerrar sesión</a>
-    </form>
+  </form>
+</body>
 </html>

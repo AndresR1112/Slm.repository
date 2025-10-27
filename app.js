@@ -353,22 +353,6 @@ app.get('/entradas/nueva', estaLogueado, async (req, res) => {
   }
 });
 
-
-/*
-// GET: Mostrar formulario de nueva entrada
-app.get('/entradas/nueva', estaLogueado, async (req, res) => {
-    try {
-        const [productos] = await db.query(`
-            SELECT id_catalogo, nombreProdu_catalogo FROM CATALOGO
-        `);
-        res.render('nueva_entrada', { productos, usuario: req.session.usuario });
-    } catch (err) {
-        console.error('Error cargando productos:', err);
-        res.send('Error cargando productos');
-    }
-});*/
-
-
 // POST: Guardar nueva entrada
 app.post('/entradas/nueva', estaLogueado, async (req, res) => {
     const { Fecha_de_entrada, Proveedor, Producto, Lote, Caducidad, Cantidad, Costo_Total } = req.body;
@@ -524,6 +508,22 @@ app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
         res.send('Error editando entrada');
     }
 });
+
+
+
+/*
+// GET: Mostrar formulario de nueva entrada
+app.get('/entradas/nueva', estaLogueado, async (req, res) => {
+    try {
+        const [productos] = await db.query(`
+            SELECT id_catalogo, nombreProdu_catalogo FROM CATALOGO
+        `);
+        res.render('nueva_entrada', { productos, usuario: req.session.usuario });
+    } catch (err) {
+        console.error('Error cargando productos:', err);
+        res.send('Error cargando productos');
+    }
+});*/
 
 
 /*
@@ -794,17 +794,39 @@ app.post('/salidas/editar/:id', estaLogueado, async (req, res) => {
 app.get('/inventario', estaLogueado, async (req, res) => {
   try {
     const [inventario] = await db.query(`
-            SELECT i.*, c.Nombre AS ProductoNombre 
-            FROM inventario i
-            JOIN catalogo c ON i.Producto = c.Codigo
-            ORDER BY i.Caducidad ASC
-        `);
+      SELECT
+        i.id_inventario,
+        i.producto_FKinventario,
+        i.lote_inventario,
+        i.stock_inventario,
+        i.caducidad_inventario,
+        i.diasRestantes_inventario,
+        i.estadoDelProducto_inventario,
+
+        -- Aliases compatibles con tu vista actual
+        c.nombreProdu_catalogo  AS ProductoNombre,   -- antes c.Nombre
+        c.clave_catalogo        AS Codigo,           -- antes c.Codigo
+
+        -- Info útil extra (por si la necesitas en la tabla)
+        c.presentacion_catalogo AS Presentacion,
+        c.precioVenta_catalogo,
+        c.costoUnitario_catalogo,
+
+        -- Cálculo de días restantes "al vuelo" (más confiable que guardar el número)
+        DATEDIFF(i.caducidad_inventario, CURDATE()) AS dias_restantes_calc
+      FROM INVENTARIO i
+      JOIN CATALOGO c
+        ON i.producto_FKinventario = c.id_catalogo
+      ORDER BY i.caducidad_inventario ASC
+    `);
+
     res.render('inventario', { inventario, usuario: req.session.usuario });
   } catch (err) {
     console.error('Error cargando inventario:', err);
     res.send('Error cargando inventario');
   }
 });
+
 
 // ------------------------ CLIENTES ------------------------
 // Mostrar todos los clientes

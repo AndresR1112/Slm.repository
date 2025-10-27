@@ -1,22 +1,28 @@
 ﻿<!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Entradas</title>
   <link rel="stylesheet" href="/estilos.css" />
 </head>
+
 <body>
   <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
   <div class="nav">
     <a href="/catalogo">Catálogo</a>
     <a href="/entradas" class="active">Entradas</a>
-    <a href="/salidas">Salidas</a>
     <a href="/inventario">Inventario</a>
+    <a href="/salidas">Salidas</a>
     <a href="/clientes">Clientes</a>
-    <% if (usuario && usuario.puesto === 'administrador') { %>
-    <a href="/usuarios">Usuarios</a>
-  <% } %>
+    <a href="/cotizaciones">Cotizaciones</a>
+
+
+    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
+      <a href="/usuarios">Usuarios</a> <!-- Solo visible para administradores -->
+      <% } %>
+
   </div>
 
   <main class="contenedor">
@@ -37,24 +43,38 @@
         </tr>
       </thead>
       <tbody>
-       <% entrada.forEach(ent => { %>
-        <tr>
-          <td><%= new Date(ent.fechaDeEntrada).toLocaleDateString('es-MX') %></td>
-          <td><%= ent.proveedor %></td>
-          <td><%= ent.ProductoNombre %></td>
-          <td><%= ent.lote %></td>
-          <td><%= new Date(ent.caducidad).toLocaleDateString('es-MX') %></td>
-          <td><%= ent.cantidad %></td>
-          <td>$<%= ent.costoTotal_entrada.toFixed(2) %></td>
-          <td><a href="/entradas/editar/<%= ent.id_entrada %>" class="btn btn-secundario">Editar</a></td>
+        <% entrada.forEach(ent=> { %>
+          <tr>
+            <td>
+              <%= new Date(ent.fechaDeEntrada).toLocaleDateString('es-MX') %>
+            </td>
+            <td>
+              <%= ent.proveedor %>
+            </td>
+            <td>
+              <%= ent.ProductoNombre %>
+            </td>
+            <td>
+              <%= ent.lote %>
+            </td>
+            <td>
+              <%= new Date(ent.caducidad).toLocaleDateString('es-MX') %>
+            </td>
+            <td>
+              <%= ent.cantidad %>
+            </td>
+            <td>$<%= ent.costoTotal_entrada.toFixed(2) %>
+            </td>
+            <td><a href="/entradas/editar/<%= ent.id_entrada %>" class="btn btn-secundario">Editar</a></td>
 
-        </tr>
-      <% }) %>
+          </tr>
+          <% }) %>
       </tbody>
     </table>
   </main>
 </body>
 <form action="/logout" method="get">
-    <a href="/logout" class="btn-logout">Cerrar sesión</a>
-    </form>
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
+</form>
+
 </html>

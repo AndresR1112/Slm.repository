@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title><%= cotizacion ? 'Editar' : 'Agregar' %> Cotización</title>
+  <link rel="stylesheet" href="/estilos.css">
+</head>
+<body>
+  <main class="contenedor" style="max-width:800px;">
+    <h2><%= cotizacion ? 'Editar' : 'Agregar nueva' %> cotización</h2>
+
+    <form action="<%= cotizacion ? '/cotizaciones/editar/' + cotizacion.id : '/cotizaciones/nueva' %>" method="POST">
+
+      <label for="noDeFolio">No. de Folio:</label>
+      <input type="text" name="noDeFolio" id="noDeFolio" required value="<%= cotizacion ? cotizacion.noDeFolio : '' %>">
+
+      <label for="fechaDeFolio">Fecha de Folio:</label>
+      <input type="date" name="fechaDeFolio" id="fechaDeFolio" required 
+             value="<%= cotizacion ? cotizacion.fechaDeFolio.toISOString().split('T')[0] : '' %>">
+
+      <label for="partidasCotizadas">Partidas Cotizadas:</label>
+      <input type="number" name="partidasCotizadas" id="partidasCotizadas" value="<%= cotizacion ? cotizacion.partidasCotizadas : '' %>">
+
+      <label for="montoMaxCotizado">Monto Máx. Cotizado:</label>
+      <input type="number" step="0.01" name="montoMaxCotizado" id="montoMaxCotizado" value="<%= cotizacion ? cotizacion.montoMaxCotizado : '' %>">
+
+      <label for="dependencia">Dependencia:</label>
+      <input type="text" name="dependencia" id="dependencia" value="<%= cotizacion ? cotizacion.dependencia : '' %>">
+
+      <label for="vigenciaDeLaCotizacion">Vigencia de la Cotización (días):</label>
+      <input type="number" name="vigenciaDeLaCotizacion" id="vigenciaDeLaCotizacion" 
+             value="<%= cotizacion ? cotizacion.vigenciaDeLaCotizacion : '' %>">
+
+      <label for="fechaFinDeLaCotizacion">Fecha Fin de la Cotización:</label>
+      <input type="date" name="fechaFinDeLaCotizacion" id="fechaFinDeLaCotizacion" 
+             value="<%= cotizacion && cotizacion.fechaFinDeLaCotizacion ? cotizacion.fechaFinDeLaCotizacion.toISOString().split('T')[0] : '' %>">
+
+      <label for="responsableDeLaCotizacion">Responsable de la Cotización:</label>
+      <input type="text" name="responsableDeLaCotizacion" id="responsableDeLaCotizacion" value="<%= cotizacion ? cotizacion.responsableDeLaCotizacion : '' %>">
+
+      <label for="estatusDeLaCotizacion">Estatus de la Cotización:</label>
+      <select name="estatusDeLaCotizacion" id="estatusDeLaCotizacion">
+        <option value="pendiente" <%= cotizacion && cotizacion.estatusDeLaCotizacion === 'pendiente' ? 'selected' : '' %>>Pendiente</option>
+        <option value="aprobada" <%= cotizacion && cotizacion.estatusDeLaCotizacion === 'aprobada' ? 'selected' : '' %>>Aprobada</option>
+        <option value="rechazada" <%= cotizacion && cotizacion.estatusDeLaCotizacion === 'rechazada' ? 'selected' : '' %>>Rechazada</option>
+      </select>
+
+      <label for="partidasAsignadas">Partidas Asignadas:</label>
+      <input type="number" name="partidasAsignadas" id="partidasAsignadas" value="<%= cotizacion ? cotizacion.partidasAsignadas : '' %>">
+
+      <label for="montoMaximoAsignado">Monto Máx. Asignado:</label>
+      <input type="number" step="0.01" name="montoMaximoAsignado" id="montoMaximoAsignado" value="<%= cotizacion ? cotizacion.montoMaximoAsignado : '' %>">
+
+      <!-- Botones -->
+      <div style="display:flex; gap:1rem; margin-top:1rem;">
+        <button type="submit" class="btn btn-exito"><%= cotizacion ? 'Actualizar' : 'Agregar' %></button>
+        <a href="/cotizaciones" class="btn btn-secundario">Cancelar</a>
+      </div>
+    </form>
+  </main>
+
+  <script>
+    // --- Referencias a los campos ---
+    const fechaFolio = document.getElementById('fechaDeFolio');
+    const fechaFin = document.getElementById('fechaFinDeLaCotizacion');
+    const vigencia = document.getElementById('vigenciaDeLaCotizacion');
+
+    // Si cambia la fecha fin → calcular vigencia automáticamente
+    fechaFin?.addEventListener('change', () => {
+      if (fechaFolio.value && fechaFin.value) {
+        const inicio = new Date(fechaFolio.value);
+        const fin = new Date(fechaFin.value);
+        const dias = Math.round((fin - inicio) / (1000 * 60 * 60 * 24));
+        vigencia.value = dias >= 0 ? dias : '';
+      }
+    });
+
+    // Si cambia la vigencia → calcular fecha fin automáticamente
+    vigencia?.addEventListener('input', () => {
+      if (fechaFolio.value && vigencia.value) {
+        const inicio = new Date(fechaFolio.value);
+        inicio.setDate(inicio.getDate() + parseInt(vigencia.value));
+        fechaFin.value = inicio.toISOString().split('T')[0];
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Editar Salida</title>
+  <link rel="stylesheet" href="/estilos.css">
+</head>
+<body>
+
+  <main class="contenedor">
+    <h2>Editar Salida</h2>
+
+    <form action="/salidas/editar/<%= salida.Id %>" method="POST">
+
+      <label for="orden_de_compra">Orden de Compra:</label>
+      <input type="number" name="orden_de_compra" id="orden_de_compra" value="<%= salida.orden_de_compra %>" />
+
+      <label for="Fecha">Fecha:</label>
+      <input type="date" name="Fecha" id="Fecha" value="<%= salida.Fecha.toISOString().slice(0,10) %>" required />
+
+      <label for="ClienteId">Cliente:</label>
+      <select name="ClienteId" id="ClienteId" required>
+        <% clientes.forEach(cliente => { %>
+          <option value="<%= cliente.Id %>" <%= salida.ClienteId === cliente.Id ? 'selected' : '' %>><%= cliente.Nombre %></option>
+        <% }) %>
+      </select>
+
+      <label for="Producto">Producto:</label>
+      <select name="Producto" id="Producto" required>
+        <% productos.forEach(producto => { %>
+          <option value="<%= producto.Codigo %>" <%= salida.Producto === producto.Codigo ? 'selected' : '' %>><%= producto.Nombre %></option>
+        <% }) %>
+      </select>
+
+      <label for="Lote">Lote:</label>
+      <select name="Lote" id="Lote" required>
+      <% lotes.forEach(lote => { %>
+      <% if (lote.Producto === salida.Producto) { %>
+      <option value="<%= lote.Lote %>" <%= salida.Lote === lote.Lote ? 'selected' : '' %>>
+        <%= lote.Lote %> - vence: <%= new Date(lote.Caducidad).toLocaleDateString('es-MX') %> - stock: <%= lote.Stock %>
+      </option>
+      <% } %>
+      <% }) %>
+      </select>
+
+      <label for="Cantidad">Cantidad:</label>
+      <input type="number" name="Cantidad" id="Cantidad" value="<%= salida.Cantidad %>" min="1" required />
+
+      <label for="Precio_Venta">Precio Venta:</label>
+      <input type="number" name="Precio_Venta" step="0.01" value="<%= salida.Precio_Venta %>" required />
+
+      <label for="Total_Facturado">Total Facturado:</label>
+      <input type="number" name="Total_Facturado" step="0.01" value="<%= salida.Total_Facturado %>" required />
+
+      <label for="Folio_de_Facturacion">Folio de Facturacion:</label>
+      <input type="text" name="Folio_de_Facturacion" step="0.01" value="<%= salida.Folio_de_Facturacion %>" />
+
+
+      <div class="botones">
+        <button type="submit" class="btn btn-exito">Guardar cambios</button>
+        <a href="/salidas" class="btn btn-secundario">Cancelar</a>
+      </div>
+
+    </form>
+  </main>
+</body>
+</html>

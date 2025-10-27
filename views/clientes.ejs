@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clientes</title>
+  <link rel="stylesheet" href="/estilos.css" />
+</head>
+<body>
+  <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
+  <!-- NAVBAR -->
+  <div class="nav">
+    <a href="/catalogo">Catálogo</a>
+    <a href="/entradas">Entradas</a>
+    <a href="/salidas">Salidas</a>
+    <a href="/inventario">Inventario</a>
+    <a href="/clientes" class="active">Clientes</a>
+    <a href="/cotizaciones">Cotizaciones</a>
+    <% if (usuario && usuario.puesto === 'administrador') { %>
+    <a href="/usuarios">Usuarios</a>
+  <% } %>
+  </div>
+
+  <!-- CONTENEDOR PRINCIPAL -->
+  <main class="contenedor">
+    <h2>Listado de Clientes</h2>
+    <a href="/clientes/nuevo" class="btn">+ Agregar Cliente</a>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>RFC</th>
+          <th>Dirección</th>
+          <th>Teléfono</th>
+          <th>Correo</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% clientes.forEach(c => { %>
+          <tr>
+            <td><%= c.Nombre %></td>
+            <td><%= c.RFC %></td>
+            <td><%= c.Direccion %></td>
+            <td><%= c.Telefono %></td>
+            <td><%= c.Correo %></td>
+            <td>
+              <!-- Botones alineados y separados -->
+              <div style="display:flex; gap:1rem; justify-content:center;">
+                <a href="/clientes/editar/<%= c.Id %>" class="btn btn-secundario">Editar</a>
+                <form action="/clientes/eliminar/<%= c.Id %>" method="POST" style="margin:0;" onsubmit="return confirm('¿Eliminar este cliente? También se eliminarán sus salidas.');">
+                  <button type="submit" class="btn btn-danger">Eliminar</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </main>
+</body>
+<form action="/logout" method="get">
+    <a href="/logout" class="btn-logout">Cerrar sesión</a>
+    </form>
+</html>

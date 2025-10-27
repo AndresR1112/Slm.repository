@@ -1,0 +1,40 @@
+<!DOCTYPE html> 
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title><%= medicamento ? 'Editar' : 'Agregar' %> Medicamento</title>
+  <link rel="stylesheet" href="/estilos.css">
+</head>
+<body>
+  <main class="contenedor" style="max-width:600px; margin:auto; padding:2rem; background:white; border-radius:10px;">
+    <h2><%= medicamento ? 'Editar' : 'Agregar nuevo' %> medicamento</h2>
+
+    <form action="<%= medicamento ? '/catalogo/editar/' + medicamento.id_catalogo : '/catalogo/nuevo' %>" method="POST">
+      
+      <label for="clave_catalogo">Clave:</label>
+      <input type="text" name="clave_catalogo" id="clave_catalogo" value="<%= medicamento ? medicamento.clave_catalogo : '' %>" required>
+
+      <label for="nombreProdu_catalogo">Nombre:</label>
+      <input type="text" name="nombreProdu_catalogo" id="nombreProdu_catalogo" required value="<%= medicamento ? medicamento.nombreProdu_catalogo : '' %>">
+
+      <label for="presentacion_catalogo">Presentación:</label>
+      <input type="text" name="presentacion_catalogo" id="presentacion_catalogo" required value="<%= medicamento ? medicamento.presentacion_catalogo : '' %>">
+
+      <label for="claveSSA_catalogo">Clave SSA:</label>
+      <input type="text" name="claveSSA_catalogo" id="claveSSA_catalogo" required value="<%= medicamento ? medicamento.claveSSA_catalogo : '' %>">
+
+      <label for="precioVenta_catalogo">Precio de Venta:</label>
+      <input type="number" step="0.01" name="precioVenta_catalogo" id="precioVenta_catalogo" required value="<%= medicamento ? medicamento.precioVenta_catalogo : '' %>">
+
+      <label for="costoUnitario_catalogo">Costo Unitario:</label>
+      <input type="number" step="0.01" name="costoUnitario_catalogo" id="costoUnitario_catalogo" required value="<%= medicamento ? medicamento.costoUnitario_catalogo : '' %>">
+
+      <!-- Botones alineados -->
+      <div style="display:flex; gap:1rem; margin-top:1rem;">
+        <button type="submit" class="btn btn-exito"><%= medicamento ? 'Actualizar' : 'Agregar' %></button>
+        <a href="/catalogo" class="btn btn-secundario">Cancelar</a>
+      </div>
+    </form>
+  </main>
+</body>
+</html>

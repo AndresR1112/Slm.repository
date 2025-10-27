@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Acceso | Inventario</title>
+    <link rel="stylesheet" href="/estilos.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+
+<body>
+    <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
+    <main style="display: flex; justify-content: center; align-items: center; min-height: 100vh;">
+        <div class="login-container" style="width: 100%; max-width: 400px;">
+            <h1>Acceso al sistema</h1>
+
+            <% if (typeof error !== 'undefined' && error) { %>
+                <p style="color: red; text-align: center;"><%= error %></p>
+                <script>
+                    console.log("🚨 Error recibido desde el servidor:", "<%= error %>");
+                </script>
+            <% } %>
+
+            <form action="/login" method="POST" onsubmit="logLoginData(event)">
+                <div class="coolinput">
+                    <label for="usuario" class="text">Usuario</label>
+                    <input type="text" name="usuario" id="usuario" class="input" required>
+                </div>
+
+                <div class="coolinput">
+                    <label for="password" class="text">Contraseña</label>
+                    <input type="password" name="password" id="password" class="input" required>
+                </div>
+
+                <button type="submit" class="btn btn-exito">Entrar</button>
+            </form>
+        </div>
+    </main>
+</body>
+
+</html>

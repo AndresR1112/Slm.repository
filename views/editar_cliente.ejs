@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Editar Cliente</title>
+  <link rel="stylesheet" href="/estilos.css" />
+</head>
+<body>
+ 
+  <main class="contenedor">
+    <h2>Editar Cliente</h2>
+
+    <form action="/clientes/editar/<%= cliente.Id %>" method="POST">
+
+      <label for="Nombre">Nombre:</label>
+      <input type="text" name="Nombre" id="Nombre" value="<%= cliente.Nombre %>" required />
+
+      <label for="RFC">RFC:</label>
+      <input type="text" name="RFC" id="RFC" value="<%= cliente.RFC %>" required />
+
+      <label for="Direccion">Dirección:</label>
+      <input type="text" name="Direccion" id="Direccion" value="<%= cliente.Direccion %>" required />
+
+      <label for="Telefono">Teléfono:</label>
+      <input type="text" name="Telefono" id="Telefono" value="<%= cliente.Telefono %>" required />
+
+      <label for="Correo">Correo:</label>
+      <input type="email" name="Correo" id="Correo" value="<%= cliente.Correo %>" required />
+
+      <!-- Botones alineados -->
+      <div class="botones">
+        <button type="submit" class="btn btn-exito">Guardar cambios</button>
+        <a href="/clientes" class="btn btn-secundario">Cancelar</a>
+      </div>
+    </form>
+  </main>
+</body>
+</html>

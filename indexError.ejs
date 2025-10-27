@@ -1,0 +1,27 @@
+//Vista contraseña incorrecta
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Inicio de sesión</title>
+    <link rel="stylesheet" href="/estilos.css">
+</head>
+<body>
+
+    <div class="container">
+        <h1 class="center-align">Iniciar Sesión</h1>
+        <form method="POST" action="/logica/loguear" class="col s12 m6 offset-m3">
+            <div class="input-field">
+                <input type="text" name="Usuario" id="usuario" required />
+                <label for="usuario">Usuario</label>
+            </div>
+            <div class="input-field">
+                <input type="password" name="clave" id="clave" required />
+                <label for="clave">Contraseña</label>
+            </div>
+            <button type="submit" class="btn waves-effect waves-light">Iniciar Sesión</button>
+        </form>
+    </div>
+</body>
+</html>

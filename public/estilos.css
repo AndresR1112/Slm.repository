@@ -1,0 +1,287 @@
+/* ====== ESTILOS GENERALES ====== */
+body {
+  margin: 0;
+  font-family: 'Segoe UI', sans-serif;
+  background-color: #f9f9f9;
+}
+
+/* ====== NAVBAR ====== */
+.nav {
+  display: flex;
+  background-color: #4c6ca0;
+}
+
+.nav a {
+  flex: 1;
+  text-align: center;
+  padding: 1rem;
+  color: white;
+  text-decoration: none;
+  font-weight: bold;
+  background-color: #688cc7;
+}
+
+.nav a.active {
+  background-color: white;
+  color: black;
+  border-top-left-radius: 5px;
+  border-top-right-radius: 5px;
+}
+
+/* ====== CONTENEDOR PRINCIPAL ====== */
+.contenedor {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 20px auto 0 auto;
+  background-color: #fff;
+  border-radius: 10px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+}
+
+/* ====== TABLAS ====== */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+  background-color: white;
+}
+
+th, td {
+  border: 1px solid #ccc;
+  padding: 10px;
+  text-align: center;
+}
+
+th {
+  background-color: #e5efff;
+}
+
+.estado-verde {
+  color: green;
+  font-weight: bold;
+}
+
+.estado-amarillo {
+  color: orange;
+  font-weight: bold;
+}
+
+.estado-rojo {
+  color: red;
+  font-weight: bold;
+}
+
+/* ====== BOTONES ====== */
+button, .btn {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  display: inline-block;
+  text-align: center;
+  text-decoration: none;
+  line-height: 1.2;
+}
+
+button:hover, .btn:hover {
+  background-color: #0056b3;
+}
+
+.btn-secundario {
+  background-color: #6c757d;
+}
+
+.btn-secundario:hover {
+  background-color: #5a6268;
+}
+
+.btn-peligro, .btn-danger {
+  background-color: #dc3545;
+}
+
+.btn-peligro:hover, .btn-danger:hover {
+  background-color: #b52a37;
+}
+
+.btn-exito {
+  background-color: #28a745;
+}
+
+.btn-exito:hover {
+  background-color: #1e7e34;
+}
+
+.btn3 {
+  background-color: #17a2b8;
+}
+
+.btn3:hover {
+  background-color: #117a8b;
+}
+
+.btn-cancelar {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btn-cancelar:hover {
+  background-color: #5a6268;
+}
+
+/* ====== FORMULARIOS ====== */
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+form label {
+  font-weight: bold;
+  color: #333;
+}
+
+form input, 
+form select, 
+form textarea {
+  padding: 0.6rem;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 1rem;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  background-color: #fdfdfd;
+}
+
+form input:focus, 
+form select:focus, 
+form textarea:focus {
+  border-color: #4c6ca0;
+  box-shadow: 0 0 5px rgba(76, 108, 160, 0.5);
+  outline: none;
+}
+
+/* Botones en línea dentro del formulario */
+form .botones {
+  display: flex;
+  gap: 10px;
+}
+
+form .botones button,
+form .botones .btn {
+  margin: 0;
+}
+
+form button {
+  align-self: flex-start;
+  padding: 0.6rem 1.2rem;
+}
+
+/* ====== TITULOS ====== */
+h2 {
+  margin-top: 0;
+  color: #4c6ca0;
+  font-size: 1.5rem;
+}
+
+/* ====== BOTÓN FLOTANTE DE CERRAR SESIÓN ====== */
+.btn-logout {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+  transition: background-color 0.3s ease, transform 0.2s ease;
+  text-decoration: none;
+  z-index: 1000;
+}
+
+.btn-logout:hover {
+  background-color: #b52a37;
+  transform: scale(1.05);
+}
+
+/* ====== RESPONSIVE ====== */
+
+/* Tablets y móviles */
+@media (max-width: 768px) {
+  /* Navbar vertical */
+  .nav {
+    flex-direction: column;
+  }
+
+  .nav a {
+    text-align: left;
+    padding: 0.8rem 1rem;
+  }
+
+  .contenedor {
+    padding: 1rem;
+    margin-top: 10px;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    font-size: 0.9rem;
+  }
+
+  th, td {
+    padding: 0.5rem;
+  }
+
+  form {
+    gap: 0.8rem;
+  }
+
+  form input,
+  form select,
+  form textarea {
+    font-size: 0.9rem;
+  }
+
+  form .botones {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  form button,
+  form .botones .btn {
+    width: 100%;
+  }
+
+  h2 {
+    font-size: 1.3rem;
+  }
+
+  button, .btn, .btn-logout {
+    font-size: 0.9rem;
+    padding: 0.5rem 0.8rem;
+  }
+}
+
+/* Móviles muy pequeños */
+@media (max-width: 480px) {
+  .contenedor {
+    width: 95%;
+    padding: 0.8rem;
+  }
+}

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>
+    <%= editar ? 'Editar Usuario' : 'Nuevo Usuario' %>
+  </title>
+  <link rel="stylesheet" href="/estilos.css">
+</head>
+
+<body>
+  <!-- Barra de navegación -->
+  <div class="nav">
+    <a href="/catalogo">Catálogo</a>
+    <a href="/entradas">Entradas</a>
+    <a href="/salidas">Salidas</a>
+    <a href="/inventario">Inventario</a>
+    <a href="/clientes">Clientes</a>
+    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
+      <a href="/usuarios" class="active">Usuarios</a>
+      <% } %>
+  </div>
+
+  <main class="contenedor" style="max-width: 600px; margin: auto;">
+    <h2>
+      <%= editar ? 'Editar Usuario' : 'Agregar Nuevo Usuario' %>
+    </h2>
+
+    <form action="<%= editar ? '/usuarios/editar/' + usuarioSel.id_usuario : '/usuarios/nuevo' %>" method="POST"
+      style="display:flex; flex-direction: column; gap: 1rem; background-color: white; padding: 2rem; border-radius: 10px;">
+
+      <label>
+        Usuario:
+        <input type="text" name="userName" class="input" required placeholder="Ingresa tu usuario"
+          value="<%= usuarioSel ? usuarioSel.userName : '' %>">
+      </label>
+
+      <label>
+        Nombre completo:
+        <input type="text" name="nombreCompleto" class="input" required placeholder="Nombre y apellidos"
+          value="<%= usuarioSel ? usuarioSel.nombreCompleto : '' %>">
+      </label>
+
+      <label>
+        Tipo de usuario:
+        <input type="text" name="tipo_usuario" class="input" required placeholder="Tipo de usuario"
+          value="<%= usuarioSel ? usuarioSel.tipo_usuario : '' %>">
+      </label>
+
+      <label>
+        Teléfono:
+        <input type="text" name="telefono_usuario" class="input" maxlength="10" required placeholder="Teléfono"
+          value="<%= usuarioSel ? usuarioSel.telefono_usuario : '' %>">
+      </label>
+
+      <label>
+        Correo:
+        <input type="email" name="correo_usuario" class="input" required placeholder="Correo electrónico"
+          value="<%= usuarioSel ? usuarioSel.correo_usuario : '' %>">
+      </label>
+
+      <label>
+        Contraseña:
+        <input type="password" name="contraseña_usuario" class="input" required placeholder="Contraseña"
+          value="<%= usuarioSel ? usuarioSel.contraseña_usuario : '' %>">
+      </label>
+
+      <div style="display:flex; gap: 1rem;">
+        <button type="submit" class="btn btn-exito">
+          <%= editar ? 'Actualizar Usuario' : 'Añadir Usuario' %>
+        </button>
+        <a href="/usuarios" class="btn btn-secundario">Cancelar</a>
+
+        <% if (editar) { %>
+          <form action="/usuarios/eliminar/<%= usuarioSel.id_usuario %>" method="POST" style="display:inline;"
+            onsubmit="return confirm('¿Eliminar este usuario?');">
+            <button type="submit" class="btn btn-danger">Eliminar Usuario</button>
+          </form>
+          <% } %>
+      </div>
+    </form>
+  </main>
+</body>
+
+</html>

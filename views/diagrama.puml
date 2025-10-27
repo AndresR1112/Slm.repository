@@ -1,0 +1,106 @@
+@startuml
+
+' Forzamos estilo ER y quitamos cualquier sintaxis ambigua
+hide circle
+skinparam linetype ortho
+skinparam entity {
+  BackgroundColor Snow
+  BorderColor Black
+  ArrowColor Black
+}
+title Diagrama EER - jartnash_programa (ASCII-safe)
+
+entity CATALOGO {
+  id_catalogo : INT (PK)
+  clave_catalogo : VARCHAR(45)
+  claveSSA_catalogo : VARCHAR(45)
+  nombreProdu_catalogo : VARCHAR(45)
+  presentacion_catalogo : VARCHAR(100)
+  precioVenta_catalogo : DECIMAL(10,2)
+  costoUnitario_catalogo : DECIMAL(10,2)
+}
+
+entity INVENTARIO {
+  id_inventario : INT (PK)
+  producto_FKinventario : INT (FK)
+  lote_inventario : VARCHAR(45)
+  stock_inventario : INT
+  caducidad_inventario : DATE
+  diasRestantes_inventario : VARCHAR(45)
+  estadoDelProducto_inventario : VARCHAR(45)
+}
+
+entity ENTRADA {
+  id_entrada : INT (PK)
+  proveedor : VARCHAR(45)
+  fechaDeEntrada : DATE
+  lote : VARCHAR(45)
+  caducidad : DATE
+  cantidad : INT
+  costoTotal_entrada : DECIMAL(10,2)
+  producto_FKdeInv : INT (FK)
+}
+
+entity CLIENTE {
+  id_cliente : INT (PK)
+  nombre_cliente : VARCHAR(45)
+  RFC_cliente : VARCHAR(13) UNIQUE NOT NULL
+  direccion_cliente : VARCHAR(250)
+  telefono_cliente : INT UNIQUE
+  correo_cliente : VARCHAR(45) UNIQUE
+}
+
+entity SALIDA {
+  id_salida : INT (PK)
+  ordenDeCompra_salida : VARCHAR(45)
+  fecha_salida : DATE
+  id_cliente : INT (FK)
+  id_inventario : INT (FK)
+  lote : VARCHAR(45)
+  cantidad : INT
+  precioDeVenta_salida : DECIMAL(10,2)
+  totalFacturado_salida : DECIMAL(10,2)
+  folioDeFacturacion_salida : VARCHAR(45)
+}
+
+entity USUARIO {
+  id_usuario : INT (PK)
+  userName : VARCHAR(45) UNIQUE
+  nombreCompleto : VARCHAR(45)
+  tipo_usuario : VARCHAR(45)
+  telefono_usuario : INT(10) UNIQUE
+  correo_usuario : VARCHAR(45) UNIQUE
+  contrasena_usuario : VARCHAR(255)
+  fechaRegistro_usuario : DATE
+}
+
+entity CONSECUTIVO {
+  id_consecutivo : INT (PK)
+  nombre : VARCHAR(50)
+  ultimoValor : INT NOT NULL
+}
+
+entity COTIZACION {
+  id_cotizacion : INT (PK)
+  noDeFolio_FKcotizacion : INT (FK)
+  fechaDeFolio_cotizacion : DATE
+  partidasCotizadas_cotizacion : INT
+  montoMaxCotizado_cotizacion : DECIMAL(10,2)
+  dependencia_cotizacion : VARCHAR(45)
+  vigenciaDeLaCotizacion : INT
+  fechaFinDeLaCotizacion : DATE
+  responsableDeLaCotizacionFK : INT (FK)
+  estatus_cotizacion : ENUM(aprobada, pendiente, rechazada) DEFAULT pendiente
+  partidasAsignadas_cotizacion : INT
+  montoMaxAsignado_cotizacion : DECIMAL(10,2)
+}
+
+' Relaciones
+CATALOGO ||--o{ INVENTARIO : producto_FKinventario → id_catalogo
+INVENTARIO ||--o{ ENTRADA : producto_FKdeInv → id_inventario
+INVENTARIO ||--o{ SALIDA : id_inventario → id_inventario
+CLIENTE ||--o{ SALIDA : id_cliente → id_cliente
+USUARIO ||--o{ COTIZACION : responsableDeLaCotizacionFK → id_usuario
+CONSECUTIVO ||--o{ COTIZACION : noDeFolio_FKcotizacion → id_consecutivo
+
+@enduml

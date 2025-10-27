@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cotizaciones</title>
+  <link rel="stylesheet" href="/estilos.css" />
+</head>
+<body>
+  <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
+
+  <!-- NAVBAR -->
+  <div class="nav">
+    <a href="/catalogo">Catálogo</a>
+    <a href="/entradas">Entradas</a>
+    <a href="/salidas">Salidas</a>
+    <a href="/inventario">Inventario</a>
+    <a href="/clientes">Clientes</a>
+    <a href="/cotizaciones" class="active">Cotizaciones</a>
+
+    <% if (usuario && usuario.puesto === 'administrador') { %>
+      <a href="/usuarios">Usuarios</a>
+    <% } %>
+  </div>
+
+  <!-- CONTENEDOR PRINCIPAL -->
+  <main class="contenedor">
+    <h2>Listado de Cotizaciones</h2>
+    <a href="/cotizaciones/nueva" class="btn">Agregar nueva cotización</a>
+
+    <table>
+      <thead>
+        <tr>
+          <th>No. de Folio</th>
+          <th>Fecha de Folio</th>
+          <th>Partidas Cotizadas</th>
+          <th>Monto Máx. Cotizado</th>
+          <th>Dependencia</th>
+          <th>Vigencia</th>
+          <th>Fecha Fin</th>
+          <th>Responsable</th>
+          <th>Estatus</th>
+          <th>Partidas Asignadas</th>
+          <th>Monto Máx. Asignado</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% cotizaciones.forEach(i => { %>
+          <tr>
+              <td><%= i.noDeFolio %></td>
+              <td><%= new Date(i.fechaDeFolio).toLocaleDateString('es-MX') %></td>
+              <td><%= i.partidasCotizadas %></td>
+              <td>$<%= i.montoMaxCotizado.toFixed(2) %></td>
+              <td><%= i.dependencia %></td>
+              <td><%= cotizacion.vigenciaDeLaCotizacion !== null ? cotizacion.vigenciaDeLaCotizacion + ' días' : 'Sin vigencia' %></td>
+              <td><%= cotizacion.fechaFinDeLaCotizacion !== null ? cotizacion.fechaFinDeLaCotizacion : 'Sin vigencia' %></td>
+              <td><%= i.responsableDeLaCotizacion %></td>
+              <td><%= i.estatusDeLaCotizacion %></td>
+              <td><%= i.partidasAsignadas %></td>
+              <td>$<%= i.montoMaximoAsignado.toFixed(2) %></td>
+            <td>
+              <div style="display:flex; gap:1rem; justify-content:center;">
+                <a href="/cotizaciones/editar/<%= i.id %>" class="btn btn-secundario">Editar</a>
+                <form action="/cotizaciones/eliminar/<%= i.id %>" method="GET" style="margin:0;" onsubmit="return confirm('¿Seguro que quieres eliminar esta cotización?');">
+                  <button type="submit" class="btn btn-danger">Eliminar</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </main>
+
+  <form action="/logout" method="get">
+    <a href="/logout" class="btn-logout">Cerrar sesión</a>
+  </form>
+</body>
+</html>

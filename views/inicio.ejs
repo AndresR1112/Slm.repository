@@ -1,0 +1,67 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Empleados</title>
+   <link rel="stylesheet" href="/estilos.css">
+</head>
+
+<body>
+  <div class="container">
+    <h2>Empleados</h2>
+
+    <% if (empleados.length > 0) { %>
+      <table class="striped highlight responsive-table">
+        <thead>
+          <tr>
+            <th>Usuario</th>
+            <th>Nombre</th>
+            <th>Puesto</th>
+            <th>Teléfono</th>
+            <th>Correo</th>
+            <th>Contraseña</th>
+            <th>Fecha de Registro</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% empleados.forEach(emp => { %>
+            <tr>
+              <td><%= emp.usuario %></td>
+              <td><%= emp.nombre_completo %></td>
+              <td><%= emp.puesto %></td>
+              <td><%= emp.telefono %></td>
+              <td><%= emp.correo %></td>
+              <td><%= emp.password %></td>
+              <td>
+                <%= emp.fecha_registro 
+                      ? new Date(emp.fecha_registro).toISOString().slice(0, 10) 
+                      : "Sin fecha" %>
+              </td>
+
+              <td><%= emp.id %></td> <!-- Esto imprimirá el ID directamente en la tabla -->
+
+              <td>
+
+                
+                <a class="btn" href="/editar/<%= emp.id %>">Editar</a>
+                <a class="btn waves-effect waves-light red" href="/eliminarUsuario/<%= emp.id %>">Eliminar Usuario</a>
+
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    <% } else { %>
+      <p>No hay empleados registrados.</p>
+    <% } %>
+
+    <div class="section" style="margin-top: 2rem;">
+      <a class="btn3 waves-effect waves-light blue" href="/registro">Nuevo Usuario</a>
+      <a class="btn3 grey lighten-1" href="/">Volver al inventario</a>
+    </div>
+  </div>
+</body>
+</html>

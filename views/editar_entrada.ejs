@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>
+    <%= editar ? 'Editar Entrada' : 'Nueva Entrada' %>
+  </title>
+  <link rel="stylesheet" href="/estilos.css" />
+</head>
+
+<body>
+  <!-- CONTENEDOR PRINCIPAL -->
+  <main class="contenedor">
+    <h2>
+      <%= editar ? 'Editar Entrada' : 'Agregar Nueva Entrada' %>
+    </h2>
+
+    <form action="<%= editar ? '/entradas/editar/' + entrada.id_entrada : '/entradas/nueva' %>" method="POST"
+          style="display:flex; flex-direction: column; gap: 1rem; background-color: white; padding: 2rem; border-radius: 10px;">
+
+      <label for="Fecha_de_entrada">Fecha de Entrada:</label>
+      <input type="date" name="Fecha_de_entrada" id="Fecha_de_entrada"
+             value="<%= editar && entrada ? entrada.fechaDeEntrada.toISOString().slice(0,10) : '' %>" required />
+
+      <label for="Proveedor">Proveedor:</label>
+      <input type="text" name="Proveedor" id="Proveedor"
+             value="<%= editar && entrada ? entrada.proveedor : '' %>" required />
+
+      <label for="Producto">Producto:</label>
+      <select name="Producto" id="Producto" required>
+        <% productos.forEach(p => { %>
+          <option value="<%= p.id_catalogo %>"
+            <%= editar && entrada && entrada.producto_FKdeInv === p.id_catalogo ? 'selected' : '' %>>
+            <%= p.nombreProdu_catalogo + ' ('+ p.clave_catalogo +')' %>
+          </option>
+        <% }) %>
+      </select>
+
+      <label for="Lote">Lote:</label>
+      <input type="text" name="Lote" id="Lote"
+             value="<%= editar && entrada ? entrada.lote : '' %>" required />
+
+      <label for="Caducidad">Caducidad:</label>
+      <input type="date" name="Caducidad" id="Caducidad"
+             value="<%= editar && entrada ? entrada.caducidad.toISOString().slice(0,10) : '' %>" required />
+
+      <label for="Cantidad">Cantidad:</label>
+      <input type="number" name="Cantidad" id="Cantidad"
+             value="<%= editar && entrada ? entrada.cantidad : '' %>" required min="1" />
+
+      <label for="Costo_Total">Costo Total:</label>
+      <input type="number" name="Costo_Total" id="Costo_Total" step="0.01"
+             value="<%= editar && entrada ? entrada.costoTotal_entrada : '' %>" required min="0" />
+
+      <div class="botones" style="display:flex; gap:1rem;">
+        <button type="submit" class="btn btn-exito">
+          <%= editar ? 'Actualizar Entrada' : 'Añadir Entrada' %>
+        </button>
+        <a href="/entradas" class="btn btn-secundario">Cancelar</a>
+      </div>
+    </form>
+  </main>
+</body>
+</html>

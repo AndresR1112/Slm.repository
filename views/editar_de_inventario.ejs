@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editar Inventario</title>
+    <link rel="stylesheet" href="/estilos.css">
+    </head>
+    
+<body>
+    <main style="max-width: 800px; margin-left: 0; padding: 2rem;">
+        <h1>Editar inventario</h1>
+
+        <form class="formulario" action="/update/<%= user.Id %>" method="POST">
+
+            
+            <div class="coolinput">
+                <label for="Clave_del_producto" class="text">Clave del producto:</label>
+                <input type="text" class="input" name="Clave_del_producto" id="Clave_del_producto"
+                    value="<%= user.Clave_del_producto %>" required maxlength="45">
+            </div>
+
+            <div class="coolinput">
+                <label for="Descripcion">Descripción</label>
+                <input type="text" class="input" name="Descripcion" id="Descripcion"
+                    value="<%= user.Descripcion %>" required maxlength="45">    
+            </div>
+
+            <div class="coolinput">
+                <label for="Piezas">Piezas</label>
+                <input type="text" class="input" name="Piezas" id="Piezas"
+                    value="<%= user.Piezas %>" required maxlength="45">
+            </div>
+
+            <div class="coolinput">
+                <label for="Laboratorio">Laboratorio</label>
+                <input type="text" class="input" name="Laboratorio" id="Laboratorio"
+                    value="<%= user.Laboratorio %>" required maxlength="45">
+            </div>
+
+            <div class="coolinput">
+                <label for="Marca">Marca</label>
+                <input type="text" class="input" name="Marca" id="Marca"
+                    value="<%= user.Marca %>" required maxlength="45">
+            </div>
+
+            <div class="coolinput">
+                <label for="Lote">Lote</label>
+                <input type="text" class="input" name="Lote" id="Lote"
+                    value="<%= user.Lote %>" required maxlength="45">
+            </div>
+
+            <div class="coolinput">
+                <label for="Caducidad">Caducidad</label>
+                <input type="text" class="input" name="Caducidad" id="Caducidad"
+                    value="<%= user.Fecha.toISOString().slice(0, 10) %>" required>
+            </div>
+
+            <div class="coolinput">
+                <label for="Piezas_surtidas">Piezas surtidas</label>
+                <input type="text" class="input" name="Piezas_surtidas" id="Piezas_surtidas"
+                    value="<%= user.Piezas_surtidas %>" required maxlength="45">
+            </div>
+
+            <div class="coolinput">
+                <label for="Destino">Destino</label>
+                <input type="text" class="input" name="Destino" id="Destino"
+                    value="<%= user.Destino %>" required maxlength="45">
+            </div>
+
+            <div class="coolinput">
+                <label for="Fecha">Fecha</label>
+                <input type="text" class="input" name="Fecha" id="Fecha"
+                    value="<%= user.Fecha.toISOString().slice(0, 10) %>" required>
+            </div>
+
+            <div class="coolinput">
+                <label for="Quien_entrego">Quién entregó</label>
+                <input type="text" class="input" name="Quien_entrego" id="Quien_entrego"
+                    value="<%= user.Quien_entrego %>" required maxlength="45">
+            </div>
+
+            <div class="coolinput">
+                <label for="Pz_en_stock">Piezas en stock</label>
+                <input type="text" class="input" name="Pz_en_stock" id="Pz_en_stock"
+                    value="<%= user.Pz_en_stock %>" required maxlength="45">
+            </div>
+
+            <button type="submit" class="btn">Actualizar</button>
+        </form>
+    </main>
+</body>
+</html>

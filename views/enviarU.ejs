@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Resultado del Registro</title>
+  <link rel="stylesheet" href="/estilos.css">
+</head>
+<body>
+  <div class="contenedor">
+    <div class="mensaje <%= exito ? 'mensaje-exito' : 'mensaje-error' %>">
+      <%= mensaje %>
+    </div>
+    <a class="btn4" href="/registro">Nuevo registro</a>
+    <a class="btn4" href="/inicio">Ver registros</a>
+  </div>
+</body>
+</html>

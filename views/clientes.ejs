@@ -8,17 +8,19 @@
 </head>
 <body>
   <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
-  <!-- NAVBAR -->
   <div class="nav">
-    <a href="/catalogo">Catálogo</a>
+     <a href="/catalogo">Catálogo</a>
     <a href="/entradas">Entradas</a>
-    <a href="/salidas">Salidas</a>
     <a href="/inventario">Inventario</a>
+    <a href="/salidas" >Salidas</a>
     <a href="/clientes" class="active">Clientes</a>
     <a href="/cotizaciones">Cotizaciones</a>
-    <% if (usuario && usuario.puesto === 'administrador') { %>
-    <a href="/usuarios">Usuarios</a>
-  <% } %>
+
+
+    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
+      <a href="/usuarios">Usuarios</a> <!-- Solo visible para administradores -->
+      <% } %>
+
   </div>
 
   <!-- CONTENEDOR PRINCIPAL -->

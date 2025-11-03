@@ -8,20 +8,20 @@
 </head>
 
 <body>
-  <!-- Barra de navegación -->
+  <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
   <div class="nav">
-    <a href="/catalogo">Catálogo</a>
+     <a href="/catalogo">Catálogo</a>
     <a href="/entradas">Entradas</a>
-    <a href="/salidas">Salidas</a>
     <a href="/inventario">Inventario</a>
+    <a href="/salidas" >Salidas</a>
     <a href="/clientes">Clientes</a>
+    <a href="/cotizaciones">Cotizaciones</a>
 
-    <% if (usuario && usuario.tipo_usuario === 'administrador') { %>
-      <a href="/cotizaciones">Cotizaciones</a>
-      <a href="/usuarios" class="active">Usuarios</a>
-    <% } %>
 
-    <a href="/logout" class="btn-logout" style="margin-left:auto;">Cerrar sesión</a>
+    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
+      <a href="/usuarios" class="active">Usuarios</a> <!-- Solo visible para administradores -->
+      <% } %>
+
   </div>
 
   <!-- Contenido principal -->
@@ -89,4 +89,7 @@
     </table>
   </main>
 </body>
+<form action="/logout" method="get">
+    <a href="/logout" class="btn-logout">Cerrar sesión</a>
+  </form>
 </html>

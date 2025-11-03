@@ -1,68 +1,170 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Editar Salida</title>
-  <link rel="stylesheet" href="/estilos.css">
+  <title><%= salida.Id ? 'Editar Salida' : 'Nueva Salida' %></title>
+  <link rel="stylesheet" href="/estilos.css" />
 </head>
 <body>
+  <main class="contenedor" style="max-width: 1000px; margin: 2rem auto;">
+    <h2><%= salida.Id ? 'Editar Salida' : 'Nueva Salida' %></h2>
 
-  <main class="contenedor">
-    <h2>Editar Salida</h2>
-
-    <form action="/salidas/editar/<%= salida.Id %>" method="POST">
-
+    <form action="<%= salida.Id ? ('/salidas/editar/' + salida.Id) : '/salidas/nueva' %>" method="POST" class="form-salida">
+      <!-- Orden de compra -->
       <label for="orden_de_compra">Orden de Compra:</label>
-      <input type="number" name="orden_de_compra" id="orden_de_compra" value="<%= salida.orden_de_compra %>" />
+      <input
+        type="number"
+        name="orden_de_compra"
+        id="orden_de_compra"
+        value="<%= salida.orden_de_compra || '' %>"
+      />
 
+      <!-- Fecha -->
       <label for="Fecha">Fecha:</label>
-      <input type="date" name="Fecha" id="Fecha" value="<%= salida.Fecha.toISOString().slice(0,10) %>" required />
+      <input
+        type="date"
+        name="Fecha"
+        id="Fecha"
+        value="<%= (salida.Fecha ? new Date(salida.Fecha) : new Date()).toISOString().slice(0,10) %>"
+        required
+      />
 
+      <!-- Cliente -->
       <label for="ClienteId">Cliente:</label>
       <select name="ClienteId" id="ClienteId" required>
-        <% clientes.forEach(cliente => { %>
-          <option value="<%= cliente.Id %>" <%= salida.ClienteId === cliente.Id ? 'selected' : '' %>><%= cliente.Nombre %></option>
+        <% (clientes || []).forEach(function(cliente){ %>
+          <option value="<%= cliente.Id %>" <%= (salida.ClienteId === cliente.Id) ? 'selected' : '' %>>
+            <%= cliente.Nombre %>
+          </option>
         <% }) %>
       </select>
 
+      <!-- Producto -->
       <label for="Producto">Producto:</label>
-      <select name="Producto" id="Producto" required>
-        <% productos.forEach(producto => { %>
-          <option value="<%= producto.Codigo %>" <%= salida.Producto === producto.Codigo ? 'selected' : '' %>><%= producto.Nombre %></option>
+      <select
+        name="Producto"
+        id="Producto"
+        required
+        data-original-producto="<%= salida.Producto || '' %>"
+      >
+        <option value="">-- Selecciona un producto --</option>
+        <% (productos || []).forEach(function(producto){ %>
+          <option value="<%= producto.Codigo %>" <%= (salida.Producto === producto.Codigo) ? 'selected' : '' %>>
+            <%= producto.Nombre %> (<%= producto.Codigo %>)
+          </option>
         <% }) %>
       </select>
 
+      <!-- Lote (se llena en el navegador a partir de window.LOTES) -->
       <label for="Lote">Lote:</label>
-      <select name="Lote" id="Lote" required>
-      <% lotes.forEach(lote => { %>
-      <% if (lote.Producto === salida.Producto) { %>
-      <option value="<%= lote.Lote %>" <%= salida.Lote === lote.Lote ? 'selected' : '' %>>
-        <%= lote.Lote %> - vence: <%= new Date(lote.Caducidad).toLocaleDateString('es-MX') %> - stock: <%= lote.Stock %>
-      </option>
-      <% } %>
-      <% }) %>
+      <select
+        name="Lote"
+        id="Lote"
+        required
+        data-current-lote="<%= salida.Lote || '' %>"
+      >
+        <option value="">-- Selecciona un lote --</option>
       </select>
+      <small id="ayuda-stock" style="display:block;margin-top:.25rem;opacity:.8;"></small>
 
+      <!-- Cantidad -->
       <label for="Cantidad">Cantidad:</label>
-      <input type="number" name="Cantidad" id="Cantidad" value="<%= salida.Cantidad %>" min="1" required />
+      <input
+        type="number"
+        name="Cantidad"
+        id="Cantidad"
+        value="<%= salida.Cantidad || '' %>"
+        min="1"
+        required
+      />
 
+      <!-- Precio de venta -->
       <label for="Precio_Venta">Precio Venta:</label>
-      <input type="number" name="Precio_Venta" step="0.01" value="<%= salida.Precio_Venta %>" required />
+      <input
+        type="number"
+        name="Precio_Venta"
+        id="Precio_Venta"
+        step="0.01"
+        value="<%= salida.Precio_Venta || '' %>"
+        required
+      />
 
+      <!-- Total facturado -->
       <label for="Total_Facturado">Total Facturado:</label>
-      <input type="number" name="Total_Facturado" step="0.01" value="<%= salida.Total_Facturado %>" required />
+      <input
+        type="number"
+        name="Total_Facturado"
+        id="Total_Facturado"
+        step="0.01"
+        value="<%= salida.Total_Facturado || '' %>"
+        required
+      />
 
-      <label for="Folio_de_Facturacion">Folio de Facturacion:</label>
-      <input type="text" name="Folio_de_Facturacion" step="0.01" value="<%= salida.Folio_de_Facturacion %>" />
+      <!-- Folio de facturación -->
+      <label for="Folio_de_Facturacion">Folio de Facturación:</label>
+      <input
+        type="text"
+        name="Folio_de_Facturacion"
+        id="Folio_de_Facturacion"
+        value="<%= salida.Folio_de_Facturacion || '' %>"
+      />
 
-
-      <div class="botones">
-        <button type="submit" class="btn btn-exito">Guardar cambios</button>
+      <div class="botones" style="margin-top:1rem; display:flex; gap:.5rem; flex-wrap:wrap;">
+        <button type="submit" class="btn btn-exito">
+          <%= salida.Id ? 'Guardar cambios' : 'Registrar Salida' %>
+        </button>
         <a href="/salidas" class="btn btn-secundario">Cancelar</a>
       </div>
-
     </form>
   </main>
+
+  <!-- Exponer datos al JS (sin lógica) -->
+  <script>
+    // Datos de la salida actual para que el JS calcule max correctamente:
+    window.SALIDA = {
+      Producto: "<%= salida.Producto || '' %>",
+      Lote: "<%= salida.Lote || '' %>",
+      // CantidadOriginal es la cantidad ya descontada previamente (si es edición). En nueva = 0.
+      CantidadOriginal: <%= Number(salida.Cantidad || 0) %>
+    };
+
+    // Lotes disponibles enviados por el servidor
+    window.LOTES = <%- JSON.stringify(lotes || []) %>;
+  </script>
+
+  <!-- JS externo servido por la app (usa window.SALIDA y window.LOTES) -->
+  <script src="/js/form_salida.js"></script>
+
+  <!-- (Opcional) Pequeño helper para mostrar stock -->
+  <script>
+    // Si quieres mostrar el stock del lote elegido en el <small id="ayuda-stock">
+    document.addEventListener('DOMContentLoaded', function(){
+      var loteSel = document.getElementById('Lote');
+      var prodSel = document.getElementById('Producto');
+      var ayuda = document.getElementById('ayuda-stock');
+
+      function mostrarStock() {
+        var codigo = prodSel.value;
+        var lote = (loteSel.selectedOptions[0] || {}).value || '';
+        if (!codigo || !lote) { ayuda.textContent = ''; return; }
+        var item = (window.LOTES || []).find(function(l){
+          return String(l.Producto) === String(codigo) && String(l.Lote) === String(lote);
+        });
+        if (!item) { ayuda.textContent = ''; return; }
+
+        var base = Number(item.Stock || 0);
+        var mismoProd = String(codigo) === String(window.SALIDA.Producto || '');
+        var mismoLote = String(lote) === String(window.SALIDA.Lote || '');
+        var max = (mismoProd && mismoLote) ? (base + Number(window.SALIDA.CantidadOriginal || 0)) : base;
+
+        ayuda.textContent = 'Stock disponible para esta operación: ' + max + ' unidades';
+      }
+
+      prodSel.addEventListener('change', mostrarStock);
+      loteSel.addEventListener('change', mostrarStock);
+      mostrarStock();
+    });
+  </script>
 </body>
 </html>

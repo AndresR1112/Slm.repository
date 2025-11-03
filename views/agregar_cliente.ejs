@@ -7,16 +7,6 @@
   <link rel="stylesheet" href="/estilos.css" />
 </head>
 <body>
-  <div class="nav">
-    <a href="/catalogo">Catálogo</a>
-    <a href="/entradas">Entradas</a>
-    <a href="/salidas">Salidas</a>
-    <a href="/inventario">Inventario</a>
-    <a href="/clientes" class="active">Clientes</a>
-    <% if (usuario && usuario.puesto === 'administrador') { %>
-    <a href="/usuarios">Usuarios</a>
-  <% } %>
-  </div>
 
   <main class="contenedor">
     <h2>Agregar Nuevo Cliente</h2>

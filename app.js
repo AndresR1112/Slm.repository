@@ -324,16 +324,23 @@ app.post('/catalogo/eliminar/:id', estaLogueado, async (req, res) => {
 
 // ------------------------ ENTRADAS ------------------------ 
 
+// ========================= ENTRADAS =========================
+
 // GET: Mostrar todas las entradas
 app.get('/entradas', estaLogueado, async (req, res) => {
   try {
     const [entrada] = await db.query(`
-            SELECT entrada.*, catalogo.nombreProdu_catalogo AS ProductoNombre
-            FROM entrada
-            INNER JOIN INVENTARIO ON entrada.producto_FKdeInv = INVENTARIO.id_inventario
-            INNER JOIN CATALOGO ON INVENTARIO.producto_FKinventario = CATALOGO.id_catalogo
-            ORDER BY entrada.fechaDeEntrada DESC
-        `);
+      SELECT e.*,
+             c.nombreProdu_catalogo AS ProductoNombre,
+             i.lote_inventario      AS LoteInventario,
+             i.estadoDelProducto_inventario AS EstadoInv
+      FROM ENTRADA e
+      LEFT JOIN INVENTARIO i
+        ON e.producto_FKdeInv = i.id_inventario
+      LEFT JOIN CATALOGO c
+        ON i.producto_FKinventario = c.id_catalogo
+      ORDER BY e.fechaDeEntrada DESC
+    `);
     res.render('entradas', { entrada, usuario: req.session.usuario });
   } catch (err) {
     console.error('Error cargando entradas:', err);
@@ -341,12 +348,32 @@ app.get('/entradas', estaLogueado, async (req, res) => {
   }
 });
 
-
-// GET: Mostrar formulario de nueva entrada
+// GET: Formulario de nueva entrada (misma vista que editar)
 app.get('/entradas/nueva', estaLogueado, async (req, res) => {
   try {
-    const [productos] = await db.query('SELECT nombreProdu_catalogo, clave_catalogo, id_catalogo FROM CATALOGO');
-    res.render('editar_entrada', { productos, usuario: req.session.usuario, editar: false });
+    const [productos] = await db.query(`
+      SELECT id_catalogo, clave_catalogo, nombreProdu_catalogo
+      FROM CATALOGO
+      ORDER BY nombreProdu_catalogo ASC
+    `);
+
+    const entrada = {
+      Id: 0,
+      Proveedor: '',
+      Fecha: new Date(),
+      Lote: '',
+      Caducidad: '',
+      Cantidad: '',
+      CostoTotal: '',
+      ProductoId: null
+    };
+
+    res.render('editar_entrada', {
+      editar: false,
+      entrada,
+      productos,
+      usuario: req.session.usuario
+    });
   } catch (err) {
     console.error('Error cargando productos:', err);
     res.send('Error cargando productos');
@@ -355,442 +382,820 @@ app.get('/entradas/nueva', estaLogueado, async (req, res) => {
 
 // POST: Guardar nueva entrada
 app.post('/entradas/nueva', estaLogueado, async (req, res) => {
-    const { Fecha_de_entrada, Proveedor, Producto, Lote, Caducidad, Cantidad, Costo_Total } = req.body;
-
-    try {
-        // 1️⃣ Validar que el producto exista en el catálogo
-        const [[productoExiste]] = await db.query(`
-            SELECT * FROM CATALOGO WHERE id_catalogo = ?
-        `, [Producto]);
-
-        if (!productoExiste) {
-            return res.send("❌ Error: No puedes registrar una entrada de un producto que no está en el catálogo.");
-        }
-
-        // 2️⃣ Buscar si ese producto/lote ya existe en inventario
-        const [[invExiste]] = await db.query(`
-             SELECT COUNT(id_inventario) AS IdInventario, COUNT(id_entrada) AS IdEntrada, id_inventario
-             FROM entrada
-             INNER JOIN INVENTARIO ON entrada.producto_FKdeInv = INVENTARIO.id_inventario
-             WHERE producto_FKinventario = ? AND lote_inventario = ? GROUP BY(id_inventario);
-        `, [Producto, Lote]);
-
-        let inventarioId;
-        inventarioId = invExiste.id_inventario;
-          console.log("Verificando existencia de inventario para producto y lote:", invExiste.IdInventario);
-        if (invExiste.IdInventario >= 1) {
-          console.log("El inventario ya existe para este producto y lote:", invExiste.IdInventario);
-
-          // 3️⃣ Registrar la entrada (ya con el id del inventario vinculado)
-        await db.query(`
-            INSERT INTO ENTRADA
-            (proveedor, fechaDeEntrada, lote, caducidad, cantidad, costoTotal_entrada, producto_FKdeInv)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        `, [Proveedor, Fecha_de_entrada, Lote, Caducidad, Cantidad, Costo_Total, inventarioId]);
-
-            // Si ya existe, actualizar stock
-            await db.query(`
-                UPDATE INVENTARIO
-                SET stock_inventario = stock_inventario + ?,
-                    caducidad_inventario = ?,
-                    diasRestantes_inventario = DATEDIFF(?, CURDATE()),
-                    estadoDelProducto_inventario = 'Disponible'
-                WHERE id_inventario = ?
-            `, [Cantidad, Caducidad, Caducidad, inventarioId]);
-            console.log('✅ Inventario actualizado:', req.body);
-        } else if (invExiste.IdInventario == 0 || invExiste.IdInventario == null) {
-          console.log("El inventario no existe para este producto y lote. Creando nuevo inventario.", invExiste.IdInventario);
-          await db.query(`
-            INSERT INTO ENTRADA
-            (proveedor, fechaDeEntrada, lote, caducidad, cantidad, costoTotal_entrada, producto_FKdeInv)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        `, [Proveedor, Fecha_de_entrada, Lote, Caducidad, Cantidad, Costo_Total, inventarioId]);
-            // Si no existe, crear inventario vinculado a catálogo
-            const [nuevoInv] = await db.query(`
-                INSERT INTO INVENTARIO
-                (producto_FKinventario, lote_inventario, stock_inventario, caducidad_inventario, diasRestantes_inventario, estadoDelProducto_inventario)
-                VALUES (?, ?, ?, ?, DATEDIFF(?, CURDATE()), 'Disponible')
-            `, [Producto, Lote, Cantidad, Caducidad, Caducidad]);
-            //inventarioId = nuevoInv.insertId;
-            console.log('✅ Nueva entrada registrada en inventario:', req.body);
-        }
-
-
-        res.redirect('/entradas');
-    } catch (err) {
-        console.error('Error al agregar entrada:', err);
-        res.send('Error al agregar entrada');
-    }
-});
-
-
-// GET: Formulario para editar entrada
-app.get('/entradas/editar/:id', estaLogueado, async (req, res) => {
-  const entradaId = req.params.id;
-  try {
-    const [[entrada]] = await db.query('SELECT * FROM entrada WHERE id_entrada = ?', [entradaId]);
-    if (!entrada) return res.send('Entrada no encontrada');
-
-    const [productos] = await db.query('SELECT nombreProdu_catalogo, clave_catalogo, id_catalogo FROM CATALOGO');
-
-    res.render('editar_entrada', {
-      productos,
-      entrada,
-      usuario: req.session.usuario,
-      editar: true
-    });
-  } catch (err) {
-    console.error('Error cargando entrada para editar:', err);
-    res.send('Error cargando entrada');
-  }
-});
-
-
-// POST: Procesar edición de entrada
-app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
-    const entradaId = req.params.id;
-    const { Fecha_de_entrada, Proveedor, Producto, Lote, Caducidad, Cantidad, Costo_Total } = req.body;
-
-    try {
-        // Validar existencia en catálogo
-        const [[productoExiste]] = await db.query('SELECT * FROM CATALOGO WHERE id_catalogo = ?', [Producto]);
-        if (!productoExiste) return res.send('❌ Error: El producto no existe en el catálogo.');
-
-        // Obtener entrada anterior
-        const [[entradaAnterior]] = await db.query('SELECT * FROM ENTRADA WHERE id_entrada = ?', [entradaId]);
-        if (!entradaAnterior) return res.send('Entrada original no encontrada');
-
-        // Restar stock anterior
-        await db.query(`
-            UPDATE INVENTARIO
-            SET stock_inventario = stock_inventario - ?
-            WHERE id_inventario = ?
-        `, [entradaAnterior.cantidad, entradaAnterior.producto_FKdeInv]);
-
-        // Verificar si existe inventario para el nuevo producto/lote
-        const [[invNuevo]] = await db.query(`
-            SELECT id_inventario FROM INVENTARIO
-            WHERE producto_FKinventario = ? AND lote_inventario = ?
-        `, [Producto, Lote]);
-
-        let inventarioId = invNuevo?.id_inventario;
-
-        if (invNuevo) {
-            // Actualizar stock existente
-            await db.query(`
-                UPDATE INVENTARIO
-                SET stock_inventario = stock_inventario + ?,
-                    caducidad_inventario = ?,
-                    diasRestantes_inventario = DATEDIFF(?, CURDATE())
-                WHERE id_inventario = ?
-            `, [Cantidad, Caducidad, Caducidad, inventarioId]);
-        } else {
-            // Crear inventario nuevo vinculado a catálogo
-            const [nuevoInv] = await db.query(`
-                INSERT INTO INVENTARIO
-                (producto_FKinventario, lote_inventario, stock_inventario, caducidad_inventario, diasRestantes_inventario, estadoDelProducto_inventario)
-                VALUES (?, ?, ?, ?, DATEDIFF(?, CURDATE()), 'Disponible')
-            `, [Producto, Lote, Cantidad, Caducidad, Caducidad]);
-            inventarioId = nuevoInv.insertId;
-        }
-
-        // Actualizar entrada
-        await db.query(`
-            UPDATE ENTRADA
-            SET proveedor = ?, fechaDeEntrada = ?, lote = ?, caducidad = ?, cantidad = ?, costoTotal_entrada = ?, producto_FKdeInv = ?
-            WHERE id_entrada = ?
-        `, [Proveedor, Fecha_de_entrada, Lote, Caducidad, Cantidad, Costo_Total, inventarioId, entradaId]);
-
-        console.log('✅ Entrada editada correctamente');
-        res.redirect('/entradas');
-    } catch (err) {
-        console.error('Error editando entrada:', err);
-        res.send('Error editando entrada');
-    }
-});
-
-
-
-/*
-// GET: Mostrar formulario de nueva entrada
-app.get('/entradas/nueva', estaLogueado, async (req, res) => {
-    try {
-        const [productos] = await db.query(`
-            SELECT id_catalogo, nombreProdu_catalogo FROM CATALOGO
-        `);
-        res.render('nueva_entrada', { productos, usuario: req.session.usuario });
-    } catch (err) {
-        console.error('Error cargando productos:', err);
-        res.send('Error cargando productos');
-    }
-});*/
-
-
-/*
-// GET: Formulario para editar entrada
-app.get('/entradas/editar/:id', estaLogueado, async (req, res) => {
-  const entradaId = req.params.id;
-  try {
-    const [[entrada]] = await db.query('SELECT * FROM entrada WHERE id_entrada = ?', [entradaId]);
-    if (!entrada) return res.send('Entrada no encontrada');
-
-    const [productos] = await db.query('SELECT nombreProdu_catalogo, clave_catalogo, id_catalogo FROM CATALOGO');
-
-    res.render('editar_entrada', {
-      productos,
-      entrada,
-      usuario: req.session.usuario,
-      editar: true
-    });
-  } catch (err) {
-    console.error('Error cargando entrada para editar:', err);
-    res.send('Error cargando entrada');
-  }
-});
-
-
-// POST: Procesar edición de entrada
-app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
-  const entradaId = req.params.id;
-  console.log('Entrada ID a editar:', entradaId);
   const { Fecha_de_entrada, Proveedor, Producto, Lote, Caducidad, Cantidad, Costo_Total } = req.body;
 
+  const conn = await db.getConnection();
   try {
-    // Obtener entrada anterior
+    await conn.beginTransaction();
 
+    const [[productoExiste]] = await conn.query(
+      'SELECT id_catalogo FROM CATALOGO WHERE id_catalogo = ?',
+      [Producto]
+    );
+    if (!productoExiste) {
+      await conn.rollback();
+      return res.send('❌ Error: El producto no existe en el catálogo.');
+    }
 
-
-    // Actualizar entrada
-    const [resEntrada] = await db.query(`
-      
-            UPDATE entrada
-            SET fechaDeEntrada = ?, proveedor = ?, producto_FKdeInv = ?, lote = ?, caducidad = ?, cantidad = ?, costoTotal_entrada = ?
-            WHERE id_entrada = ?;
-        `, [Fecha_de_entrada, Proveedor, Producto, Lote, Caducidad, Cantidad, Costo_Total, entradaId]);
-
-    console.log('Aqui vas', req.body);
-
-    console.log('Resultado UPDATE entrada:', resEntrada);
-
-
-    const [[entradaAnterior]] = await db.query('SELECT entrada.*, inventario.id_inventario FROM entrada INNER JOIN INVENTARIO ON entrada.producto_FKdeInv = INVENTARIO.id_inventario WHERE id_entrada = ?', [entradaId]);
-    if (!entradaAnterior) return res.send('Entrada original no encontrada');
-    console.log('Aqui vas 2', entradaAnterior);
-    // Ajustar inventario: restar cantidad anterior
-    const [resInventario] = await db.query(`
-            UPDATE inventario
-            SET stock_inventario = stock_inventario - ?, caducidad_inventario = ?, diasRestantes_inventario = DATEDIFF(?, CURDATE())
-            WHERE id_inventario = ? AND lote_inventario = ?;
-        `, [entradaAnterior.cantidad, entradaAnterior.caducidad, entradaAnterior.caducidad, entradaAnterior.id_inventario, entradaAnterior.lote]);
-
-    console.log('Aqui vas 3', entradaAnterior);
-
-    console.log('Resultado UPDATE inventario:', resInventario);
-    
-    // Ajustar inventario: sumar nueva cantidad
-    await db.query(`
-             UPDATE inventario
-             SET stock_inventario = stock_inventario + ?, caducidad_inventario = ?, diasRestantes_inventario = DATEDIFF(?, CURDATE())
-             WHERE id inventario = ? AND lote_inventario = ?;
-         `, [Cantidad, Caducidad, Caducidad, Producto, Lote]);
-
-    console.log('Entrada editada:', req.body);
-    res.redirect('/entradas');
-  } catch (err) {
-    console.error('Error editando entrada:', err);
-    res.send('Error editando entrada');
-  }
-});*/
-
-
-// ========================= SALIDAS =========================
-
-// GET: Mostrar todas las salidas con nombres de cliente y producto
-app.get('/salidas', estaLogueado, async (req, res) => {
-  try {
-    const [salidas] = await db.query(`
-            SELECT s.*, cl.Nombre AS ClienteNombre, ca.Nombre AS ProductoNombre
-            FROM salidas s
-            JOIN clientes cl ON s.ClienteId = cl.Id
-            JOIN catalogo ca ON s.Producto = ca.Codigo
-            ORDER BY s.Fecha DESC
-        `);
-    res.render('salidas', { salidas, usuario: req.session.usuario });
-  } catch (err) {
-    console.error('Error cargando salidas:', err);
-    res.send('Error cargando salidas');
-  }
-});
-
-// GET: Buscar salida por orden de compra
-app.get('/salidas/buscar', estaLogueado, async (req, res) => {
-  const orden = parseInt(req.query.orden_buscar, 10);
-  if (isNaN(orden)) return res.redirect('/salidas');
-
-  try {
-    const [salidas] = await db.query(`
-            SELECT s.*, cl.Nombre AS ClienteNombre, ca.Nombre AS ProductoNombre
-            FROM salidas s
-            JOIN clientes cl ON s.ClienteId = cl.Id
-            JOIN catalogo ca ON s.Producto = ca.Codigo
-            WHERE s.orden_de_compra = ?
-            ORDER BY s.Fecha DESC
-        `, [orden]);
-    res.render('salidas', { salidas, usuario: req.session.usuario });
-  } catch (err) {
-    console.error('Error buscando orden de compra:', err);
-    res.send('Error buscando orden de compra');
-  }
-});
-
-// GET: Formulario para nueva salida
-app.get('/salidas/nueva', estaLogueado, async (req, res) => {
-  try {
-    const [clientes] = await db.query('SELECT * FROM clientes');
-    const [productos] = await db.query('SELECT * FROM catalogo');
-    const [lotes] = await db.query(`
-            SELECT Producto, Lote, Caducidad, Stock 
-            FROM inventario 
-            WHERE Stock > 0
-        `);
-    res.render('nueva_salida', { clientes, productos, lotes, usuario: req.session.usuario });
-  } catch (err) {
-    console.error('Error cargando formulario de nueva salida:', err);
-    res.send('Error cargando formulario de nueva salida');
-  }
-});
-
-// POST: Procesar nueva salida y actualizar inventario
-app.post('/salidas/nueva', estaLogueado, async (req, res) => {
-  try {
-    let { Fecha, ClienteId, Producto, Lote, Cantidad, Precio_Venta, Total_Facturado, orden_de_compra, Folio_de_Facturacion } = req.body;
-    const cantidadNum = parseInt(Cantidad, 10);
-
-    // Verificar stock y caducidad del lote
-    const [inventarioRes] = await db.query(
-      'SELECT Stock, Caducidad FROM inventario WHERE Producto = ? AND Lote = ?',
+    const [[invExiste]] = await conn.query(
+      `SELECT id_inventario
+         FROM INVENTARIO
+        WHERE producto_FKinventario = ? AND lote_inventario = ?
+        FOR UPDATE`,
       [Producto, Lote]
     );
 
-    if (inventarioRes.length === 0 || inventarioRes[0].Stock < cantidadNum) {
-      return res.send(`
-                <h2 style="color:red;">Error: Stock insuficiente o lote inexistente</h2>
-                <a href="/salidas/nueva"><button>Volver</button></a>
-            `);
-    }
+    let inventarioId;
 
-    const caducidad = inventarioRes[0].Caducidad;
-
-    const usarSecuencia = !orden_de_compra || orden_de_compra === '';
-
-    const insertarSalida = async (ordenOC) => {
-      await db.query(`
-                INSERT INTO salidas
-                (Fecha, ClienteId, Producto, Lote, Cantidad, Precio_Venta, Total_Facturado, orden_de_compra, Caducidad, Folio_de_Facturacion)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [Fecha, ClienteId, Producto, Lote, cantidadNum, Precio_Venta, Total_Facturado, ordenOC, caducidad, Folio_de_Facturacion || null]);
-
-      // Actualizar inventario
-      await db.query(`
-                UPDATE inventario
-                SET Stock = Stock - ?, Dias_Restantes_a_Caducar = DATEDIFF(Caducidad, CURDATE())
-                WHERE Producto = ? AND Lote = ?
-            `, [cantidadNum, Producto, Lote]);
-
-      // Eliminar fila si stock llega a 0
-      await db.query('DELETE FROM inventario WHERE Producto = ? AND Lote = ? AND Stock <= 0', [Producto, Lote]);
-
-      res.redirect('/salidas');
-    };
-
-    if (usarSecuencia) {
-      const [[ocRes]] = await db.query(
-        "SELECT ultimo_valor + 1 AS siguiente FROM consecutivos WHERE nombre = 'orden_de_compra' FOR UPDATE"
+    if (invExiste) {
+      inventarioId = invExiste.id_inventario;
+      await conn.query(
+        `UPDATE INVENTARIO
+            SET stock_inventario = stock_inventario + ?,
+                caducidad_inventario = ?,
+                diasRestantes_inventario = DATEDIFF(?, CURDATE()),
+                estadoDelProducto_inventario = 'Disponible'
+          WHERE id_inventario = ?`,
+        [Cantidad, Caducidad, Caducidad, inventarioId]
       );
-      const siguienteOC = ocRes.siguiente;
-      await db.query("UPDATE consecutivos SET ultimo_valor = ? WHERE nombre = 'orden_de_compra'", [siguienteOC]);
-      await insertarSalida(siguienteOC);
     } else {
-      await insertarSalida(parseInt(orden_de_compra, 10));
+      const [nuevoInv] = await conn.query(
+        `INSERT INTO INVENTARIO
+          (producto_FKinventario, lote_inventario, stock_inventario, caducidad_inventario, diasRestantes_inventario, estadoDelProducto_inventario)
+         VALUES (?, ?, ?, ?, DATEDIFF(?, CURDATE()), 'Disponible')`,
+        [Producto, Lote, Number(Cantidad), Caducidad, Caducidad]
+      );
+      inventarioId = nuevoInv.insertId;
     }
+
+    await conn.query(
+      `INSERT INTO ENTRADA
+        (proveedor, fechaDeEntrada, lote, caducidad, cantidad, costoTotal_entrada, producto_FKdeInv)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [Proveedor, Fecha_de_entrada, Lote, Caducidad, Number(Cantidad), Costo_Total, inventarioId]
+    );
+
+    await conn.commit();
+    res.redirect('/entradas');
   } catch (err) {
-    console.error('Error procesando nueva salida:', err);
-    res.send('Error procesando nueva salida');
+    await conn.rollback();
+    console.error('Error al agregar entrada:', err);
+    res.send('Error al agregar entrada');
+  } finally {
+    conn.release();
   }
 });
 
-// GET: Formulario para editar salida
-app.get('/salidas/editar/:id', estaLogueado, async (req, res) => {
-  const salidaId = req.params.id;
+// GET: Formulario para editar entrada
+app.get('/entradas/editar/:id', estaLogueado, async (req, res) => {
+  const entradaId = req.params.id;
   try {
-    const [[salida]] = await db.query('SELECT * FROM salidas WHERE Id = ?', [salidaId]);
-    if (!salida) return res.send('Salida no encontrada');
+    const [[entrada]] = await db.query(`
+      SELECT
+        e.id_entrada           AS Id,
+        e.proveedor            AS Proveedor,
+        e.fechaDeEntrada       AS Fecha,
+        e.lote                 AS Lote,
+        e.caducidad            AS Caducidad,
+        e.cantidad             AS Cantidad,
+        e.costoTotal_entrada   AS CostoTotal,
+        i.producto_FKinventario AS ProductoId
+      FROM ENTRADA e
+      LEFT JOIN INVENTARIO i ON i.id_inventario = e.producto_FKdeInv
+      WHERE e.id_entrada = ?
+    `, [entradaId]);
 
-    const [clientes] = await db.query('SELECT * FROM clientes');
-    const [productos] = await db.query('SELECT * FROM catalogo');
-    const [lotes] = await db.query(`
-            SELECT Producto, Lote, Caducidad, Stock
-            FROM inventario
-            WHERE Stock > 0
-            UNION
-            SELECT Producto, Lote, Caducidad, 0 AS Stock
-            FROM salidas
-            WHERE Id = ?
-        `, [salidaId]);
+    if (!entrada) return res.send('Entrada no encontrada');
 
-    res.render('editar_salida', { salida, clientes, productos, lotes, usuario: req.session.usuario });
+    const [productos] = await db.query(`
+      SELECT id_catalogo, clave_catalogo, nombreProdu_catalogo
+      FROM CATALOGO
+      ORDER BY nombreProdu_catalogo ASC
+    `);
+
+    res.render('editar_entrada', {
+      editar: true,
+      entrada,
+      productos,
+      usuario: req.session.usuario
+    });
   } catch (err) {
-    console.error('Error cargando salida para editar:', err);
-    res.send('Error cargando salida para editar');
+    console.error('Error cargando entrada para editar:', err);
+    res.send('Error cargando entrada');
   }
 });
 
-// POST: Procesar edición de salida
+// POST: Editar entrada (ajuste por delta si no cambia producto/lote)
+app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
+  const entradaId = req.params.id;
+  const { Fecha_de_entrada, Proveedor, Producto, Lote, Caducidad, Cantidad, Costo_Total } = req.body;
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [[entradaAnterior]] = await conn.query(
+      'SELECT * FROM ENTRADA WHERE id_entrada = ? FOR UPDATE',
+      [entradaId]
+    );
+    if (!entradaAnterior) {
+      await conn.rollback();
+      return res.send('Entrada original no encontrada');
+    }
+
+    const [[invViejo]] = await conn.query(
+      'SELECT * FROM INVENTARIO WHERE id_inventario = ? FOR UPDATE',
+      [entradaAnterior.producto_FKdeInv]
+    );
+    if (!invViejo) {
+      await conn.rollback();
+      return res.send('Inventario original no encontrado');
+    }
+
+    const mismoProducto = (Number(invViejo.producto_FKinventario) === Number(Producto));
+    const mismoLote = (invViejo.lote_inventario === Lote);
+
+    if (mismoProducto && mismoLote) {
+      const delta = Number(Cantidad) - Number(entradaAnterior.cantidad);
+      if (delta !== 0) {
+        await conn.query(
+          `UPDATE INVENTARIO
+              SET stock_inventario = stock_inventario + ?,
+                  caducidad_inventario = ?,
+                  diasRestantes_inventario = DATEDIFF(?, CURDATE())
+            WHERE id_inventario = ?`,
+          [delta, Caducidad, Caducidad, invViejo.id_inventario]
+        );
+      }
+
+      await conn.query(
+        `UPDATE ENTRADA
+            SET proveedor = ?,
+                fechaDeEntrada = ?,
+                lote = ?,
+                caducidad = ?,
+                cantidad = ?,
+                costoTotal_entrada = ?
+          WHERE id_entrada = ?`,
+        [Proveedor, Fecha_de_entrada, Lote, Caducidad, Number(Cantidad), Costo_Total, entradaId]
+      );
+    } else {
+      const [[invDestinoExistente]] = await conn.query(
+        `SELECT id_inventario
+           FROM INVENTARIO
+          WHERE producto_FKinventario = ? AND lote_inventario = ?
+          FOR UPDATE`,
+        [Producto, Lote]
+      );
+
+      let inventarioDestinoId;
+      if (invDestinoExistente) {
+        inventarioDestinoId = invDestinoExistente.id_inventario;
+        await conn.query(
+          `UPDATE INVENTARIO
+              SET stock_inventario = stock_inventario + ?,
+                  caducidad_inventario = ?,
+                  diasRestantes_inventario = DATEDIFF(?, CURDATE()),
+                  estadoDelProducto_inventario = 'Disponible'
+            WHERE id_inventario = ?`,
+          [Number(Cantidad), Caducidad, Caducidad, inventarioDestinoId]
+        );
+      } else {
+        const [nuevoInv] = await conn.query(
+          `INSERT INTO INVENTARIO
+            (producto_FKinventario, lote_inventario, stock_inventario, caducidad_inventario, diasRestantes_inventario, estadoDelProducto_inventario)
+           VALUES (?, ?, ?, ?, DATEDIFF(?, CURDATE()), 'Disponible')`,
+          [Producto, Lote, Number(Cantidad), Caducidad, Caducidad]
+        );
+        inventarioDestinoId = nuevoInv.insertId;
+      }
+
+      await conn.query(
+        `UPDATE ENTRADA
+            SET proveedor = ?,
+                fechaDeEntrada = ?,
+                lote = ?,
+                caducidad = ?,
+                cantidad = ?,
+                costoTotal_entrada = ?,
+                producto_FKdeInv = ?
+          WHERE id_entrada = ?`,
+        [Proveedor, Fecha_de_entrada, Lote, Caducidad, Number(Cantidad), Costo_Total, inventarioDestinoId, entradaId]
+      );
+
+      await conn.query(
+        `UPDATE INVENTARIO
+            SET stock_inventario = stock_inventario - ?
+          WHERE id_inventario = ?`,
+        [Number(entradaAnterior.cantidad), invViejo.id_inventario]
+      );
+
+      const [[revViejo]] = await conn.query(
+        'SELECT stock_inventario FROM INVENTARIO WHERE id_inventario = ?',
+        [invViejo.id_inventario]
+      );
+
+      if (revViejo && Number(revViejo.stock_inventario) === 0) {
+        const [[refsViejas]] = await conn.query(
+          'SELECT COUNT(*) AS cnt FROM ENTRADA WHERE producto_FKdeInv = ?',
+          [invViejo.id_inventario]
+        );
+
+        if (Number(refsViejas.cnt) === 0) {
+          await conn.query('DELETE FROM INVENTARIO WHERE id_inventario = ?', [invViejo.id_inventario]);
+        } else {
+          await conn.query(
+            `UPDATE INVENTARIO
+                SET estadoDelProducto_inventario = 'Agotado'
+              WHERE id_inventario = ?`,
+            [invViejo.id_inventario]
+          );
+        }
+      }
+    }
+
+    await conn.commit();
+    console.log('✅ Entrada editada correctamente');
+    res.redirect('/entradas');
+  } catch (err) {
+    await conn.rollback();
+    console.error('Error editando entrada:', err);
+    res.send('Error editando entrada');
+  } finally {
+    conn.release();
+  }
+});
+
+// ========================= SALIDAS (ajustado a tu BD + aliases para tu EJS) =========================
+
+  app.get('/salidas', estaLogueado, async (req, res) => {
+    try {
+      const [salidas] = await db.query(`
+        SELECT
+          s.id_salida                  AS Id,
+          s.ordenDeCompra_salida      AS orden_de_compra,
+          s.fecha_salida              AS Fecha,
+          cl.nombre_cliente           AS ClienteNombre,
+          ca.nombreProdu_catalogo     AS ProductoNombre,
+          ca.clave_catalogo           AS Codigo,
+          s.lote                      AS Lote,
+          s.cantidad                  AS Cantidad,
+          s.precioDeVenta_salida      AS Precio_Venta,
+          s.totalFacturado_salida     AS Total_Facturado,
+          s.folioDeFacturacion_salida AS Folio_de_Facturacion
+        FROM SALIDA s
+        LEFT JOIN CLIENTE    cl ON cl.id_cliente   = s.id_cliente
+        LEFT JOIN INVENTARIO i  ON i.id_inventario = s.id_inventario
+        LEFT JOIN CATALOGO   ca ON ca.id_catalogo  = i.producto_FKinventario
+        ORDER BY s.fecha_salida DESC
+      `);
+
+      res.render('salidas', { salidas, usuario: req.session.usuario });
+    } catch (err) {
+      console.error('Error cargando salidas:', err);
+      res.send('Error cargando salidas');
+    }
+  });
+
+  // ========================= SALIDAS: BUSCAR POR ORDEN =========================
+  app.get('/salidas/buscar', estaLogueado, async (req, res) => {
+    const orden = req.query.orden_buscar?.toString().trim();
+    if (!orden) return res.redirect('/salidas');
+
+    try {
+      const [salidas] = await db.query(`
+        SELECT
+          s.id_salida                  AS Id,
+          s.ordenDeCompra_salida      AS orden_de_compra,
+          s.fecha_salida              AS Fecha,
+          cl.nombre_cliente           AS ClienteNombre,
+          ca.nombreProdu_catalogo     AS ProductoNombre,
+          ca.clave_catalogo           AS Codigo,
+          s.lote                      AS Lote,
+          s.cantidad                  AS Cantidad,
+          s.precioDeVenta_salida      AS Precio_Venta,
+          s.totalFacturado_salida     AS Total_Facturado,
+          s.folioDeFacturacion_salida AS Folio_de_Facturacion
+        FROM SALIDA s
+        LEFT JOIN CLIENTE    cl ON cl.id_cliente   = s.id_cliente
+        LEFT JOIN INVENTARIO i  ON i.id_inventario = s.id_inventario
+        LEFT JOIN CATALOGO   ca ON ca.id_catalogo  = i.producto_FKinventario
+        WHERE s.ordenDeCompra_salida = ?
+        ORDER BY s.fecha_salida DESC
+      `, [orden]);
+
+      res.render('salidas', { salidas, usuario: req.session.usuario });
+    } catch (err) {
+      console.error('Error buscando orden de compra:', err);
+      res.send('Error buscando orden de compra');
+    }
+  });
+
+
+  // NUEVA: FORMULARIO (clientes/productos + lotes precargados en la vista)
+  //  - El <select Lote> se llena en el navegador filtrando window.LOTES (sin API).
+  app.get('/salidas/nueva', estaLogueado, async (req, res) => {
+    try {
+      // Clientes -> { Id, Nombre }
+      const [clientes] = await db.query(`
+        SELECT id_cliente AS Id, nombre_cliente AS Nombre
+        FROM CLIENTE
+        ORDER BY nombre_cliente ASC
+      `);
+
+      // Productos con presencia en inventario (stock > 0) -> { Codigo, Nombre }
+      const [productos] = await db.query(`
+        SELECT
+          c.clave_catalogo        AS Codigo,
+          c.nombreProdu_catalogo  AS Nombre
+        FROM INVENTARIO i
+        JOIN CATALOGO c ON c.id_catalogo = i.producto_FKinventario
+        WHERE i.stock_inventario > 0
+        GROUP BY c.clave_catalogo, c.nombreProdu_catalogo
+        ORDER BY c.nombreProdu_catalogo ASC
+      `);
+
+      // Lotes disponibles (stock > 0) -> { Producto (Codigo), Lote, Caducidad, Stock }
+      const [lotes] = await db.query(`
+        SELECT
+          c.clave_catalogo        AS Producto,
+          i.lote_inventario       AS Lote,
+          i.caducidad_inventario  AS Caducidad,
+          i.stock_inventario      AS Stock
+        FROM INVENTARIO i
+        JOIN CATALOGO c ON c.id_catalogo = i.producto_FKinventario
+        WHERE i.stock_inventario > 0
+        ORDER BY c.nombreProdu_catalogo ASC, i.lote_inventario ASC
+      `);
+
+      // Objeto "salida" vacío para reusar la misma vista
+      const salida = {
+        Id: 0,
+        orden_de_compra: '',
+        Fecha: new Date(),
+        ClienteId: null,
+        Producto: '',    // Codigo
+        Lote: '',
+        Cantidad: '',
+        Precio_Venta: '',
+        Total_Facturado: '',
+        Folio_de_Facturacion: ''
+      };
+
+      res.render('editar_salida', { salida, clientes, productos, lotes, usuario: req.session.usuario });
+    } catch (err) {
+      console.error('Error cargando formulario de nueva salida:', err);
+      res.send('Error cargando formulario de nueva salida');
+    }
+  });
+
+  // NUEVA: PROCESAR
+  app.post('/salidas/nueva', estaLogueado, async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+      let { Fecha, ClienteId, Producto, Lote, Cantidad, Precio_Venta, Total_Facturado, orden_de_compra, Folio_de_Facturacion } = req.body;
+      const cantidadNum = parseInt(Cantidad, 10);
+
+      await conn.beginTransaction();
+
+      // Convertir Producto (Codigo/clave_catalogo) -> id_catalogo
+      const [[cat]] = await conn.query(
+        `SELECT id_catalogo FROM CATALOGO WHERE clave_catalogo = ?`,
+        [Producto]
+      );
+      if (!cat) {
+        await conn.rollback();
+        return res.send(`
+          <h2 style="color:red;">Error: Código de producto inválido</h2>
+          <a href="/salidas/nueva"><button>Volver</button></a>
+        `);
+      }
+
+      // Buscar inventario por (id_catalogo, Lote)
+      const [[inv]] = await conn.query(`
+        SELECT id_inventario, stock_inventario, caducidad_inventario
+        FROM INVENTARIO
+        WHERE producto_FKinventario = ? AND lote_inventario = ?
+        FOR UPDATE
+      `, [cat.id_catalogo, Lote]);
+
+      if (!inv || inv.stock_inventario < cantidadNum) {
+        await conn.rollback();
+        return res.send(`
+          <h2 style="color:red;">Error: Stock insuficiente o lote inexistente</h2>
+          <a href="/salidas/nueva"><button>Volver</button></a>
+        `);
+      }
+
+      // Orden de compra (si no viene, usar consecutivo)
+      let ordenOC = (orden_de_compra && `${orden_de_compra}`.trim() !== '') ? `${orden_de_compra}`.trim() : null;
+      if (!ordenOC) {
+        const [[row]] = await conn.query(
+          `SELECT * FROM CONSECUTIVO WHERE nombre = 'orden_de_compra' FOR UPDATE`
+        );
+        if (!row) {
+          await conn.query(`INSERT INTO CONSECUTIVO (nombre, ultimoValor) VALUES ('orden_de_compra', 0)`);
+        }
+        const [[row2]] = await conn.query(
+          `SELECT * FROM CONSECUTIVO WHERE nombre = 'orden_de_compra' FOR UPDATE`
+        );
+        const siguiente = Number(row2.ultimoValor) + 1;
+        await conn.query(
+          `UPDATE CONSECUTIVO SET ultimoValor = ? WHERE id_consecutivo = ?`,
+          [siguiente, row2.id_consecutivo]
+        );
+        ordenOC = String(siguiente);
+      }
+
+      // Insertar salida
+      await conn.query(`
+        INSERT INTO SALIDA
+          (ordenDeCompra_salida, fecha_salida, id_cliente, id_inventario, lote, cantidad,
+          precioDeVenta_salida, totalFacturado_salida, folioDeFacturacion_salida)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        ordenOC,
+        Fecha,
+        ClienteId,
+        inv.id_inventario,
+        Lote,
+        cantidadNum,
+        Precio_Venta,
+        Total_Facturado,
+        Folio_de_Facturacion || null
+      ]);
+
+      // Descontar inventario
+      await conn.query(`
+        UPDATE INVENTARIO
+          SET stock_inventario = stock_inventario - ?,
+              diasRestantes_inventario = DATEDIFF(caducidad_inventario, CURDATE())
+        WHERE id_inventario = ?
+      `, [cantidadNum, inv.id_inventario]);
+
+      // Si quedó en 0, no borrar (evita cascada), solo marcar Agotado
+      const [[rev]] = await conn.query(
+        `SELECT stock_inventario FROM INVENTARIO WHERE id_inventario = ?`,
+        [inv.id_inventario]
+      );
+      if (rev && Number(rev.stock_inventario) === 0) {
+        await conn.query(`
+          UPDATE INVENTARIO
+            SET estadoDelProducto_inventario = 'Agotado'
+          WHERE id_inventario = ?
+        `, [inv.id_inventario]);
+      }
+
+      await conn.commit();
+      res.redirect('/salidas');
+    } catch (err) {
+      await conn.rollback();
+      console.error('Error procesando nueva salida:', err);
+      res.send('Error procesando nueva salida');
+    } finally {
+      conn.release();
+    }
+  });
+
+  // EDITAR: FORMULARIO (aliaseado EXACTO a tu EJS)
+  app.get('/salidas/editar/:id', estaLogueado, async (req, res) => {
+    const salidaId = req.params.id;
+    try {
+      // salida -> con los nombres que espera tu EJS
+      const [[salida]] = await db.query(`
+        SELECT
+          s.id_salida                  AS Id,
+          s.ordenDeCompra_salida      AS orden_de_compra,
+          s.fecha_salida              AS Fecha,
+          s.id_cliente                AS ClienteId,
+          ca.clave_catalogo           AS Producto,         -- Codigo para tu <select>
+          s.lote                      AS Lote,
+          s.cantidad                  AS Cantidad,
+          s.precioDeVenta_salida      AS Precio_Venta,
+          s.totalFacturado_salida     AS Total_Facturado,
+          s.folioDeFacturacion_salida AS Folio_de_Facturacion,
+          s.id_inventario             AS id_inventario
+        FROM SALIDA s
+        LEFT JOIN INVENTARIO i ON i.id_inventario = s.id_inventario
+        LEFT JOIN CATALOGO  ca ON ca.id_catalogo   = i.producto_FKinventario
+        WHERE s.id_salida = ?
+      `, [salidaId]);
+
+      if (!salida) return res.send('Salida no encontrada');
+
+      // clientes -> { Id, Nombre }
+      const [clientes] = await db.query(`
+        SELECT id_cliente AS Id, nombre_cliente AS Nombre
+        FROM CLIENTE
+        ORDER BY nombre_cliente ASC
+      `);
+
+      // productos -> { Codigo, Nombre } (con presencia en inventario)
+      const [productos] = await db.query(`
+        SELECT
+          c.clave_catalogo        AS Codigo,
+          c.nombreProdu_catalogo  AS Nombre
+        FROM INVENTARIO i
+        JOIN CATALOGO c ON c.id_catalogo = i.producto_FKinventario
+        GROUP BY c.clave_catalogo, c.nombreProdu_catalogo
+        ORDER BY c.nombreProdu_catalogo ASC
+      `);
+
+      // Lotes que se enviarán a la vista para que el JS los filtre allí
+      // Incluye el lote actual aunque esté en 0
+      const [lotes] = await db.query(`
+        SELECT
+          c.clave_catalogo        AS Producto,
+          i.lote_inventario       AS Lote,
+          i.caducidad_inventario  AS Caducidad,
+          i.stock_inventario      AS Stock
+        FROM INVENTARIO i
+        JOIN CATALOGO c ON c.id_catalogo = i.producto_FKinventario
+        WHERE (i.stock_inventario > 0) OR (i.id_inventario = ?)
+        ORDER BY c.nombreProdu_catalogo ASC, i.lote_inventario ASC
+      `, [salida.id_inventario]);
+
+      res.render('editar_salida', { salida, clientes, productos, lotes, usuario: req.session.usuario });
+    } catch (err) {
+      console.error('Error cargando salida para editar:', err);
+      res.send('Error cargando salida para editar');
+    }
+  });
+
+
+  // EDITAR: PROCESAR (Producto llega como Codigo -> resolver a id_catalogo)
+// Manejo por DELTA si no cambia el inventario (mismo producto+lote)
 app.post('/salidas/editar/:id', estaLogueado, async (req, res) => {
   const salidaId = req.params.id;
+  const conn = await db.getConnection();
   try {
-    const { Fecha, ClienteId, Producto, Lote, Cantidad, Precio_Venta, Total_Facturado, orden_de_compra, Folio_de_Facturacion } = req.body;
-    const cantidadNum = parseInt(Cantidad, 10);
-    const nuevaOrden = parseInt(orden_de_compra, 10);
+    const {
+      Fecha, ClienteId, Producto, Lote, Cantidad,
+      Precio_Venta, Total_Facturado, orden_de_compra, Folio_de_Facturacion
+    } = req.body;
 
-    const [[original]] = await db.query('SELECT * FROM salidas WHERE Id = ?', [salidaId]);
-    if (!original) return res.send('Salida original no encontrada');
+    const nuevaCant = parseInt(Cantidad, 10);
 
-    const diferencia = cantidadNum - original.Cantidad;
+    await conn.beginTransaction();
 
-    // Actualizar inventario según la diferencia
-    await db.query('UPDATE inventario SET Stock = Stock - ? WHERE Producto = ? AND Lote = ?', [diferencia, Producto, Lote]);
+    // 1) Salida original (incluye inventario actual y cantidad original)
+    const [[original]] = await conn.query(`
+      SELECT s.id_salida, s.cantidad AS cant_original, s.id_inventario AS inv_original,
+             s.ordenDeCompra_salida
+      FROM SALIDA s
+      WHERE s.id_salida = ?
+      FOR UPDATE
+    `, [salidaId]);
 
-    // Verificar stock disponible después del ajuste
-    const [invRes] = await db.query('SELECT Stock FROM inventario WHERE Producto = ? AND Lote = ?', [Producto, Lote]);
-    const stockDisponible = invRes.length > 0 ? invRes[0].Stock : 0;
-    if (stockDisponible < 0) {
-      return res.send(`
-                <h2 style="color:red;">Error: Stock insuficiente en lote seleccionado</h2>
-                <a href="/salidas"><button class="btn">Volver</button></a>
-            `);
+    if (!original) {
+      await conn.rollback();
+      return res.send('Salida original no encontrada');
     }
 
-    // Actualizar la salida
-    await db.query(`
-            UPDATE salidas
-            SET Fecha = ?, ClienteId = ?, Producto = ?, Lote = ?, Cantidad = ?, Precio_Venta = ?, Total_Facturado = ?, orden_de_compra = ?, Folio_de_Facturacion = ?
-            WHERE Id = ?
-        `, [Fecha, ClienteId, Producto, Lote, cantidadNum, Precio_Venta, Total_Facturado, nuevaOrden, Folio_de_Facturacion, salidaId]);
+    const cantOriginal = Number(original.cant_original || 0);
 
-    // Eliminar fila de inventario si stock llega a 0
-    await db.query('DELETE FROM inventario WHERE Producto = ? AND Lote = ? AND Stock <= 0', [Producto, Lote]);
+    // 2) Resolver Codigo -> id_catalogo
+    const [[cat]] = await conn.query(
+      `SELECT id_catalogo FROM CATALOGO WHERE clave_catalogo = ?`,
+      [Producto]
+    );
+    if (!cat) {
+      await conn.rollback();
+      return res.send(`
+        <h2 style="color:red;">Error: Código de producto inválido</h2>
+        <a href="/salidas"><button class="btn">Volver</button></a>
+      `);
+    }
 
+    // 3) Inventario destino (producto + lote)
+    const [[invDestino]] = await conn.query(`
+      SELECT id_inventario, stock_inventario, caducidad_inventario
+      FROM INVENTARIO
+      WHERE producto_FKinventario = ? AND lote_inventario = ?
+      FOR UPDATE
+    `, [cat.id_catalogo, Lote]);
+
+    if (!invDestino) {
+      await conn.rollback();
+      return res.send(`
+        <h2 style="color:red;">Error: Lote seleccionado no existe</h2>
+        <a href="/salidas"><button class="btn">Volver</button></a>
+      `);
+    }
+
+    // 4) ¿Cambió el inventario (producto/lote)?
+    const mismoInventario = (Number(invDestino.id_inventario) === Number(original.inv_original));
+
+    if (mismoInventario) {
+      // --- Caso A: MISMO inventario -> ajustar por DELTA ---
+      // stock actual ya es "stock tras la salida original"
+      const stockActual = Number(invDestino.stock_inventario);
+      const delta = nuevaCant - cantOriginal; // + => pedir más stock; - => regresar stock
+
+      // Validación: si delta > 0, debe haber stock suficiente
+      if (delta > 0 && delta > stockActual) {
+        await conn.rollback();
+        return res.send(`
+          <h2 style="color:red;">Error: La cantidad excede el stock disponible para este ajuste</h2>
+          <a href="/salidas"><button class="btn">Volver</button></a>
+        `);
+      }
+
+      // Aplicar el delta
+      const stockNuevo = stockActual - delta;
+      await conn.query(`
+        UPDATE INVENTARIO
+           SET stock_inventario = ?
+         WHERE id_inventario = ?
+      `, [stockNuevo, invDestino.id_inventario]);
+
+      // Actualizar salida
+      await conn.query(`
+        UPDATE SALIDA
+           SET fecha_salida              = ?,
+               id_cliente                = ?,
+               id_inventario             = ?,   -- se mantiene igual
+               lote                      = ?,
+               cantidad                  = ?,
+               precioDeVenta_salida      = ?,
+               totalFacturado_salida     = ?,
+               ordenDeCompra_salida      = ?,
+               folioDeFacturacion_salida = ?
+         WHERE id_salida = ?
+      `, [
+        Fecha,
+        ClienteId,
+        invDestino.id_inventario,
+        Lote,
+        nuevaCant,
+        Precio_Venta,
+        Total_Facturado,
+        (orden_de_compra && `${orden_de_compra}`.trim() !== '' ? `${orden_de_compra}`.trim() : original.ordenDeCompra_salida),
+        Folio_de_Facturacion || null,
+        salidaId
+      ]);
+    } else {
+      // --- Caso B: CAMBIÓ de inventario -> revertir y aplicar completo ---
+      // 1) Revertir al inventario original
+      if (original.inv_original) {
+        await conn.query(`
+          UPDATE INVENTARIO
+             SET stock_inventario = stock_inventario + ?
+           WHERE id_inventario = ?
+        `, [cantOriginal, original.inv_original]);
+      }
+
+      // 2) Validar stock en inventario nuevo para la nueva cantidad
+      if (Number(invDestino.stock_inventario) < nuevaCant) {
+        await conn.rollback();
+        return res.send(`
+          <h2 style="color:red;">Error: Stock insuficiente en el nuevo lote seleccionado</h2>
+          <a href="/salidas"><button class="btn">Volver</button></a>
+        `);
+      }
+
+      // 3) Descontar del inventario nuevo
+      await conn.query(`
+        UPDATE INVENTARIO
+           SET stock_inventario = stock_inventario - ?
+         WHERE id_inventario = ?
+      `, [nuevaCant, invDestino.id_inventario]);
+
+      // 4) Actualizar salida con nuevo inventario
+      await conn.query(`
+        UPDATE SALIDA
+           SET fecha_salida              = ?,
+               id_cliente                = ?,
+               id_inventario             = ?,
+               lote                      = ?,
+               cantidad                  = ?,
+               precioDeVenta_salida      = ?,
+               totalFacturado_salida     = ?,
+               ordenDeCompra_salida      = ?,
+               folioDeFacturacion_salida = ?
+         WHERE id_salida = ?
+      `, [
+        Fecha,
+        ClienteId,
+        invDestino.id_inventario,
+        Lote,
+        nuevaCant,
+        Precio_Venta,
+        Total_Facturado,
+        (orden_de_compra && `${orden_de_compra}`.trim() !== '' ? `${orden_de_compra}`.trim() : original.ordenDeCompra_salida),
+        Folio_de_Facturacion || null,
+        salidaId
+      ]);
+
+      // 5) Si el inventario original quedó en 0, marcar Agotado (opcional)
+      if (original.inv_original) {
+        const [[revViejo]] = await conn.query(
+          `SELECT stock_inventario FROM INVENTARIO WHERE id_inventario = ?`,
+          [original.inv_original]
+        );
+        if (revViejo && Number(revViejo.stock_inventario) === 0) {
+          await conn.query(`
+            UPDATE INVENTARIO
+               SET estadoDelProducto_inventario = 'Agotado'
+             WHERE id_inventario = ?
+          `, [original.inv_original]);
+        }
+      }
+    }
+
+    await conn.commit();
     res.redirect('/salidas');
   } catch (err) {
-    console.error('Error editando salida:', err);
+    await conn.rollback();
+    console.error('Error editando salida (delta):', err);
     res.send('Error editando salida');
+  } finally {
+    conn.release();
   }
 });
 
-// ========================= INVENTARIO =========================
+// ========================= Servir el JS externo SIN API (usa window.LOTES) =========================
+app.get('/js/form_salida.js', (req, res) => {
+  res.type('application/javascript').send(`
 
-// GET: Mostrar inventario
+// =================== Lógica principal ===================
+document.addEventListener('DOMContentLoaded', function () {
+  var productoSelect = document.getElementById('Producto');
+  var loteSelect = document.getElementById('Lote');
+  var cantidadInput = document.getElementById('Cantidad');
+  var LOTES = window.LOTES || [];
+  var SALIDA = window.SALIDA || { Producto: null, Lote: null, CantidadOriginal: 0 };
+
+  function poblarLotes() {
+    var codigo = productoSelect.value;
+    loteSelect.innerHTML = '<option value="">-- Selecciona un lote --</option>';
+    loteSelect.disabled = true;
+
+    if (!codigo) { actualizarMax(); return; }
+
+    var filtrados = LOTES.filter(function (l) { return String(l.Producto) === String(codigo); });
+
+    filtrados.forEach(function (l) {
+      var opt = document.createElement('option');
+      opt.value = l.Lote;
+      opt.textContent = l.Lote + ' (stock: ' + l.Stock + ')';
+      opt.dataset.stock = l.Stock;
+      loteSelect.appendChild(opt);
+    });
+
+    loteSelect.disabled = filtrados.length === 0;
+
+    // Mantener seleccionado el lote actual si existe (edición)
+    var actual = loteSelect.getAttribute('data-current-lote') || SALIDA.Lote;
+    if (actual) {
+      var found = Array.from(loteSelect.options).find(function (o) { return o.value === actual; });
+      if (found) { found.selected = true; }
+    }
+
+    actualizarMax();
+  }
+
+  function actualizarMax() {
+    var sel = loteSelect.selectedOptions[0];
+    if (sel && sel.dataset.stock) {
+      var base = parseInt(sel.dataset.stock, 10);
+      var mismoProd = String(productoSelect.value) === String(SALIDA.Producto);
+      var mismoLote = String(sel.value) === String(SALIDA.Lote);
+      var maxPermitido = (mismoProd && mismoLote)
+        ? (base + Number(SALIDA.CantidadOriginal || 0))
+        : base;
+      cantidadInput.max = maxPermitido;
+    } else {
+      cantidadInput.removeAttribute('max');
+    }
+  }
+
+  productoSelect.addEventListener('change', poblarLotes);
+  loteSelect.addEventListener('change', actualizarMax);
+
+  // Inicializar
+  poblarLotes();
+  actualizarMax();
+});
+
+// =================== Código específico para NUEVA salida ===================
+if (window.location.pathname.includes('/salidas/nueva')) {
+  console.log('Formulario: Nueva salida');
+  // Aquí puedes agregar lógica adicional para nuevas salidas si la necesitas
+}
+
+// =================== Código específico para EDITAR salida ===================
+if (window.location.pathname.includes('/salidas/editar')) {
+  console.log('Formulario: Editar salida');
+  // Aquí puedes agregar lógica extra para edición (por ejemplo, validaciones o mensajes)
+}
+
+  `);
+});
+
+
+// ========================= INVENTARIO =========================
+// GET: Mostrar inventario (compatible con tu EJS actual)
 app.get('/inventario', estaLogueado, async (req, res) => {
   try {
     const [inventario] = await db.query(`
@@ -800,20 +1205,25 @@ app.get('/inventario', estaLogueado, async (req, res) => {
         i.lote_inventario,
         i.stock_inventario,
         i.caducidad_inventario,
-        i.diasRestantes_inventario,
-        i.estadoDelProducto_inventario,
 
-        -- Aliases compatibles con tu vista actual
-        c.nombreProdu_catalogo  AS ProductoNombre,   -- antes c.Nombre
-        c.clave_catalogo        AS Codigo,           -- antes c.Codigo
-
-        -- Info útil extra (por si la necesitas en la tabla)
+        -- Aliases que tu EJS ya consume
+        c.nombreProdu_catalogo  AS ProductoNombre,
+        c.clave_catalogo        AS Codigo,
         c.presentacion_catalogo AS Presentacion,
         c.precioVenta_catalogo,
         c.costoUnitario_catalogo,
 
-        -- Cálculo de días restantes "al vuelo" (más confiable que guardar el número)
-        DATEDIFF(i.caducidad_inventario, CURDATE()) AS dias_restantes_calc
+        -- DÍAS RESTANTES (con ambos nombres por compatibilidad con tu EJS)
+        DATEDIFF(i.caducidad_inventario, CURDATE()) AS diasRestantes_inventario,
+        DATEDIFF(i.caducidad_inventario, CURDATE()) AS DiasRestantes,
+
+        -- ESTADO con los textos exactos que usa tu EJS
+        CASE
+          WHEN i.caducidad_inventario IS NULL THEN 'Vigente'              -- si no hay fecha, lo tratamos como vigente
+          WHEN i.caducidad_inventario < CURDATE() THEN 'Caducado'
+          WHEN DATEDIFF(i.caducidad_inventario, CURDATE()) <= 30 THEN 'Próximo a vencer'
+          ELSE 'Vigente'
+        END AS estadoDelProducto_inventario
       FROM INVENTARIO i
       JOIN CATALOGO c
         ON i.producto_FKinventario = c.id_catalogo
@@ -832,7 +1242,17 @@ app.get('/inventario', estaLogueado, async (req, res) => {
 // Mostrar todos los clientes
 app.get('/clientes', estaLogueado, async (req, res) => {
   try {
-    const [resultados] = await db.query('SELECT * FROM clientes');
+    const [resultados] = await db.query(`
+      SELECT
+        id_cliente        AS Id,
+        nombre_cliente    AS Nombre,
+        RFC_cliente       AS RFC,
+        direccion_cliente AS Direccion,
+        telefono_cliente  AS Telefono,
+        correo_cliente    AS Correo
+      FROM CLIENTE
+      ORDER BY nombre_cliente ASC
+    `);
     res.render('clientes', {
       clientes: resultados,
       usuario: req.session.usuario
@@ -853,13 +1273,17 @@ app.get('/clientes/nuevo', estaLogueado, (req, res) => {
 // Procesar nuevo cliente
 app.post('/clientes/agregar', async (req, res) => {
   const { Nombre, RFC, Direccion, Telefono, Correo } = req.body;
-  const sql = 'INSERT INTO clientes (Nombre, RFC, Direccion, Telefono, Correo) VALUES (?, ?, ?, ?, ?)';
-
+  const sql = `
+    INSERT INTO CLIENTE
+      (nombre_cliente, RFC_cliente, direccion_cliente, telefono_cliente, correo_cliente)
+    VALUES (?, ?, ?, ?, ?)
+  `;
   try {
     await db.query(sql, [Nombre, RFC, Direccion, Telefono, Correo]);
     res.redirect('/clientes');
   } catch (err) {
     console.error(err);
+    // Puedes manejar duplicados por UNIQUE (RFC/telefono/correo) aquí si quieres
     res.send('Error al agregar cliente');
   }
 });
@@ -867,9 +1291,18 @@ app.post('/clientes/agregar', async (req, res) => {
 // Mostrar formulario para editar cliente
 app.get('/clientes/editar/:id', estaLogueado, async (req, res) => {
   const clienteId = req.params.id;
-
   try {
-    const [resultados] = await db.query('SELECT * FROM clientes WHERE Id = ?', [clienteId]);
+    const [resultados] = await db.query(`
+      SELECT
+        id_cliente        AS Id,
+        nombre_cliente    AS Nombre,
+        RFC_cliente       AS RFC,
+        direccion_cliente AS Direccion,
+        telefono_cliente  AS Telefono,
+        correo_cliente    AS Correo
+      FROM CLIENTE
+      WHERE id_cliente = ?
+    `, [clienteId]);
 
     if (resultados.length === 0) {
       return res.send('Cliente no encontrado');
@@ -885,28 +1318,20 @@ app.get('/clientes/editar/:id', estaLogueado, async (req, res) => {
   }
 });
 
-// Procesar edición de cliente y actualizar salidas
+// Procesar edición de cliente
 app.post('/clientes/editar/:id', async (req, res) => {
   const clienteId = req.params.id;
   const { Nombre, RFC, Direccion, Telefono, Correo } = req.body;
 
   const sqlUpdateCliente = `
-    UPDATE clientes 
-    SET Nombre = ?, RFC = ?, Direccion = ?, Telefono = ?, Correo = ? 
-    WHERE Id = ?
+    UPDATE CLIENTE
+    SET nombre_cliente = ?, RFC_cliente = ?, direccion_cliente = ?, telefono_cliente = ?, correo_cliente = ?
+    WHERE id_cliente = ?
   `;
 
   try {
     await db.query(sqlUpdateCliente, [Nombre, RFC, Direccion, Telefono, Correo, clienteId]);
-
-    // Actualizar también salidas (opcional)
-    const sqlUpdateSalidas = `
-      UPDATE salidas 
-      SET ClienteNombre = ?
-      WHERE ClienteId = ?
-    `;
-    await db.query(sqlUpdateSalidas, [Nombre, clienteId]);
-
+    // ❌ No actualizamos SALIDA aquí: no existe columna ClienteNombre en SALIDA y la FK ya apunta por id_cliente
     res.redirect('/clientes');
   } catch (err) {
     console.error('Error al actualizar cliente:', err);
@@ -919,7 +1344,7 @@ app.post('/clientes/eliminar/:id', async (req, res) => {
   const clienteId = req.params.id;
 
   try {
-    await db.query('DELETE FROM clientes WHERE Id = ?', [clienteId]);
+    await db.query('DELETE FROM CLIENTE WHERE id_cliente = ?', [clienteId]);
     res.redirect('/clientes');
   } catch (err) {
     console.error('Error eliminando cliente:', err);
@@ -927,11 +1352,54 @@ app.post('/clientes/eliminar/:id', async (req, res) => {
   }
 });
 
-// ------------------------ COTIZACIONES ------------------------
+// ------- Utilidad para calcular vigencia/fecha fin -------
+function calcularVigenciaYFechaFin(fechaDeFolio, vigenciaInput, fechaFinInput) {
+  let vigencia = (vigenciaInput && String(vigenciaInput).trim() !== '') ? parseInt(vigenciaInput) : null;
+  let fechaFin = (fechaFinInput && String(fechaFinInput).trim() !== '') ? fechaFinInput : null;
 
+  if (vigencia && !fechaFin) {
+    const inicio = new Date(fechaDeFolio);
+    const fin = new Date(inicio);
+    fin.setDate(inicio.getDate() + vigencia);
+    fechaFin = fin.toISOString().split('T')[0];
+  }
+
+  if (fechaFin && !vigencia) {
+    const inicio = new Date(fechaDeFolio);
+    const fin = new Date(fechaFin);
+    vigencia = Math.round((fin - inicio) / (1000 * 60 * 60 * 24));
+  }
+
+  if (!fechaFin && !vigencia) {
+    fechaFin = null;
+    vigencia = null;
+  }
+  return { vigencia, fechaFin };
+}
+
+// ==================== COTIZACIONES ====================
+
+// Listado
 app.get('/cotizaciones', estaLogueado, async (req, res) => {
   try {
-    const [cotizaciones] = await db.query('SELECT * FROM cotizaciones');
+    const [cotizaciones] = await db.query(
+      `SELECT
+         c.id_cotizacion                        AS id,
+         c.noDeFolio_FKcotizacion              AS noDeFolio,              -- FK a CONSECUTIVO
+         c.fechaDeFolio_cotizacion             AS fechaDeFolio,
+         c.partidasCotizadas_cotizacion        AS partidasCotizadas,
+         c.montoMaxCotizado_cotizacion         AS montoMaxCotizado,
+         c.dependencia_cotizacion              AS dependencia,
+         c.vigenciaDeLaCotizacion              AS vigenciaDeLaCotizacion, -- en días
+         c.fechaFinDeLaCotizacion              AS fechaFinDeLaCotizacion,
+         c.responsableDeLaCotizacionFK         AS responsableDeLaCotizacion, -- FK a USUARIO
+         c.estatus_cotizacion                  AS estatusDeLaCotizacion,  -- enum('aprobada','pendiente','rechazada')
+         c.partidasAsignadas_cotizacion        AS partidasAsignadas,
+         c.montoMaxAsignado_cotizacion         AS montoMaximoAsignado
+       FROM COTIZACION c
+       ORDER BY c.id_cotizacion DESC`
+    );
+
     res.render('cotizaciones', {
       usuario: req.session.usuario,
       cotizaciones
@@ -942,140 +1410,168 @@ app.get('/cotizaciones', estaLogueado, async (req, res) => {
   }
 });
 
-// ---------- FORMULARIO NUEVA COTIZACIÓN ----------
+// Form nueva
 app.get('/cotizaciones/nueva', estaLogueado, (req, res) => {
-  res.render('editar_cotizaciones', { cotizacion: null });
+  res.render('editar_cotizaciones', { cotizacion: null, usuario: req.session.usuario });
 });
 
-// ---------- GUARDAR NUEVA COTIZACIÓN ----------
+// Guardar nueva
 app.post('/cotizaciones/nueva', estaLogueado, async (req, res) => {
   try {
     const {
-      noDeFolio,
+      noDeFolio,                    // ID de CONSECUTIVO (noDeFolio_FKcotizacion)
       fechaDeFolio,
       partidasCotizadas,
       montoMaxCotizado,
       dependencia,
       vigenciaDeLaCotizacion,
       fechaFinDeLaCotizacion,
-      responsableDeLaCotizacion,
-      estatusDeLaCotizacion,
+      responsableDeLaCotizacion,    // ID de USUARIO (responsableDeLaCotizacionFK)
+      estatusDeLaCotizacion,        // 'pendiente' | 'aprobada' | 'rechazada'
       partidasAsignadas,
       montoMaximoAsignado
     } = req.body;
 
-    // --- Cálculos automáticos entre fechaFin y vigencia ---
-    let vigencia1 = vigenciaDeLaCotizacion;
-    let fechaFin1 = fechaFinDeLaCotizacion;
-
-    if (fechaFinDeLaCotizacion && !vigenciaDeLaCotizacion) {
-      // Si hay fecha fin pero no vigencia → calcular vigencia
-      const inicio = new Date(fechaDeFolio);
-      const fin = new Date(fechaFinDeLaCotizacion);
-      vigencia1 = Math.round((fin - inicio) / (1000 * 60 * 60 * 24));
-    } else if (!fechaFinDeLaCotizacion && vigenciaDeLaCotizacion) {
-      // Si hay vigencia pero no fecha fin → calcular fecha fin
-      const inicio = new Date(fechaDeFolio);
-      inicio.setDate(inicio.getDate() + parseInt(vigenciaDeLaCotizacion));
-      fechaFin1 = inicio.toISOString().split('T')[0];
-    }
+    const { vigencia, fechaFin } =
+      calcularVigenciaYFechaFin(fechaDeFolio, vigenciaDeLaCotizacion, fechaFinDeLaCotizacion);
 
     await db.query(
-      `INSERT INTO cotizaciones 
-            (noDeFolio, fechaDeFolio, partidasCotizadas, montoMaxCotizado, dependencia, vigenciaDeLaCotizacion, fechaFinDeLaCotizacion, responsableDeLaCotizacion, estatusDeLaCotizacion, partidasAsignadas, montoMaximoAsignado)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [noDeFolio, fechaDeFolio, partidasCotizadas, montoMaxCotizado, dependencia, vigencia1, fechaFin1, responsableDeLaCotizacion, estatusDeLaCotizacion, partidasAsignadas, montoMaximoAsignado]
-    );
-
-    res.redirect('/cotizaciones');
-  } catch (err) {
-    console.error('Error guardando cotización:', err);
-    res.status(500).send('Error al guardar la cotización');
-  }
-});
-
-
-// ---------- ACTUALIZAR COTIZACIÓN ----------
-app.post('/cotizaciones/nueva', estaLogueado, async (req, res) => {
-  try {
-    const {
-      noDeFolio,
-      fechaDeFolio,
-      partidasCotizadas,
-      montoMaxCotizado,
-      dependencia,
-      vigenciaDeLaCotizacion,
-      fechaFinDeLaCotizacion,
-      responsableDeLaCotizacion,
-      estatusDeLaCotizacion,
-      partidasAsignadas,
-      montoMaximoAsignado
-    } = req.body;
-
-    // -------------------------
-    // Manejo de fechas y vigencia
-    // -------------------------
-
-    // Convertimos valores vacíos a null
-    let vigencia = vigenciaDeLaCotizacion && vigenciaDeLaCotizacion.trim() !== ''
-      ? parseInt(vigenciaDeLaCotizacion)
-      : null;
-
-    let fechaFin = fechaFinDeLaCotizacion && fechaFinDeLaCotizacion.trim() !== ''
-      ? fechaFinDeLaCotizacion
-      : null;
-
-    // Si hay vigencia pero no fechaFin, calculamos fechaFin
-    if (vigencia && !fechaFin) {
-      const inicio = new Date(fechaDeFolio);
-      const fin = new Date(inicio);
-      fin.setDate(inicio.getDate() + vigencia);
-      fechaFin = fin.toISOString().split('T')[0];
-    }
-
-    // Si hay fechaFin pero no vigencia, calculamos vigencia en días
-    if (fechaFin && !vigencia) {
-      const inicio = new Date(fechaDeFolio);
-      const fin = new Date(fechaFin);
-      const dias = Math.round((fin - inicio) / (1000 * 60 * 60 * 24));
-      vigencia = dias;
-    }
-
-    // Si no hay ninguno, ambos quedan null
-    if (!fechaFin && !vigencia) {
-      fechaFin = null;
-      vigencia = null;
-    }
-
-    // -------------------------
-    // Insert en base de datos
-    // -------------------------
-    await db.query(
-      `INSERT INTO cotizaciones
-        (noDeFolio, fechaDeFolio, partidasCotizadas, montoMaxCotizado, dependencia, vigenciaDeLaCotizacion, fechaFinDeLaCotizacion, responsableDeLaCotizacion, estatusDeLaCotizacion, partidasAsignadas, montoMaximoAsignado)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO COTIZACION
+       (noDeFolio_FKcotizacion,
+        fechaDeFolio_cotizacion,
+        partidasCotizadas_cotizacion,
+        montoMaxCotizado_cotizacion,
+        dependencia_cotizacion,
+        vigenciaDeLaCotizacion,
+        fechaFinDeLaCotizacion,
+        responsableDeLaCotizacionFK,
+        estatus_cotizacion,
+        partidasAsignadas_cotizacion,
+        montoMaxAsignado_cotizacion)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        noDeFolio,
+        noDeFolio,                                // FK (int) a CONSECUTIVO.id_consecutivo
         fechaDeFolio,
-        partidasCotizadas,
-        montoMaxCotizado,
-        dependencia,
-        vigencia,   // número de días o null
-        fechaFin,   // fecha o null
-        responsableDeLaCotizacion,
-        estatusDeLaCotizacion,
-        partidasAsignadas,
-        montoMaximoAsignado
+        partidasCotizadas || 0,
+        montoMaxCotizado || 0,
+        dependencia || null,
+        vigencia,                                 // días o NULL
+        fechaFin,                                 // fecha o NULL
+        responsableDeLaCotizacion || null,        // FK (int) a USUARIO.id_usuario
+        estatusDeLaCotizacion || 'pendiente',     // enum válido
+        partidasAsignadas || 0,
+        montoMaximoAsignado || 0
       ]
     );
 
     res.redirect('/cotizaciones');
-
   } catch (err) {
     console.error('Error guardando cotización:', err);
     res.status(500).send('Error al guardar la cotización');
   }
 });
+
+// Form editar
+app.get('/cotizaciones/editar/:id', estaLogueado, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await db.query(
+      `SELECT
+         c.id_cotizacion                        AS id,
+         c.noDeFolio_FKcotizacion              AS noDeFolio,
+         c.fechaDeFolio_cotizacion             AS fechaDeFolio,
+         c.partidasCotizadas_cotizacion        AS partidasCotizadas,
+         c.montoMaxCotizado_cotizacion         AS montoMaxCotizado,
+         c.dependencia_cotizacion              AS dependencia,
+         c.vigenciaDeLaCotizacion              AS vigenciaDeLaCotizacion,
+         c.fechaFinDeLaCotizacion              AS fechaFinDeLaCotizacion,
+         c.responsableDeLaCotizacionFK         AS responsableDeLaCotizacion,
+         c.estatus_cotizacion                  AS estatusDeLaCotizacion,
+         c.partidasAsignadas_cotizacion        AS partidasAsignadas,
+         c.montoMaxAsignado_cotizacion         AS montoMaximoAsignado
+       FROM COTIZACION c
+       WHERE c.id_cotizacion = ?`,
+      [id]
+    );
+
+    if (rows.length === 0) return res.status(404).send('Cotización no encontrada');
+    res.render('editar_cotizaciones', { cotizacion: rows[0], usuario: req.session.usuario });
+  } catch (err) {
+    console.error('Error cargando cotización:', err);
+    res.status(500).send('Error en el servidor');
+  }
+});
+
+// Actualizar
+app.post('/cotizaciones/editar/:id', estaLogueado, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      noDeFolio,
+      fechaDeFolio,
+      partidasCotizadas,
+      montoMaxCotizado,
+      dependencia,
+      vigenciaDeLaCotizacion,
+      fechaFinDeLaCotizacion,
+      responsableDeLaCotizacion,
+      estatusDeLaCotizacion,
+      partidasAsignadas,
+      montoMaximoAsignado
+    } = req.body;
+
+    const { vigencia, fechaFin } =
+      calcularVigenciaYFechaFin(fechaDeFolio, vigenciaDeLaCotizacion, fechaFinDeLaCotizacion);
+
+    await db.query(
+      `UPDATE COTIZACION SET
+         noDeFolio_FKcotizacion           = ?,
+         fechaDeFolio_cotizacion          = ?,
+         partidasCotizadas_cotizacion     = ?,
+         montoMaxCotizado_cotizacion      = ?,
+         dependencia_cotizacion           = ?,
+         vigenciaDeLaCotizacion           = ?,
+         fechaFinDeLaCotizacion           = ?,
+         responsableDeLaCotizacionFK      = ?,
+         estatus_cotizacion               = ?,
+         partidasAsignadas_cotizacion     = ?,
+         montoMaxAsignado_cotizacion      = ?
+       WHERE id_cotizacion = ?`,
+      [
+        noDeFolio,
+        fechaDeFolio,
+        partidasCotizadas || 0,
+        montoMaxCotizado || 0,
+        dependencia || null,
+        vigencia,
+        fechaFin,
+        responsableDeLaCotizacion || null,
+        estatusDeLaCotizacion || 'pendiente',
+        partidasAsignadas || 0,
+        montoMaximoAsignado || 0,
+        id
+      ]
+    );
+
+    res.redirect('/cotizaciones');
+  } catch (err) {
+    console.error('Error actualizando cotización:', err);
+    res.status(500).send('Error al actualizar la cotización');
+  }
+});
+
+// Eliminar
+app.get('/cotizaciones/eliminar/:id', estaLogueado, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.query('DELETE FROM COTIZACION WHERE id_cotizacion = ?', [id]);
+    res.redirect('/cotizaciones');
+  } catch (err) {
+    console.error('Error eliminando cotización:', err);
+    res.status(500).send('Error al eliminar la cotización');
+  }
+});
+
 
 // ======================== PUERTO PARA CONECTARSE CON NODE ========================
 const PORT = 3005;

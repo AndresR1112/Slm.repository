@@ -13,14 +13,15 @@
   <div class="nav">
     <a href="/catalogo">Catálogo</a>
     <a href="/entradas">Entradas</a>
-    <a href="/salidas">Salidas</a>
     <a href="/inventario">Inventario</a>
+    <a href="/salidas">Salidas</a>
     <a href="/clientes">Clientes</a>
     <a href="/cotizaciones" class="active">Cotizaciones</a>
 
-    <% if (usuario && usuario.puesto === 'administrador') { %>
-      <a href="/usuarios">Usuarios</a>
-    <% } %>
+    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
+      <a href="/usuarios">Usuarios</a> <!-- Solo visible para administradores -->
+      <% } %>
+
   </div>
 
   <!-- CONTENEDOR PRINCIPAL -->
@@ -49,16 +50,16 @@
         <% cotizaciones.forEach(i => { %>
           <tr>
               <td><%= i.noDeFolio %></td>
-              <td><%= new Date(i.fechaDeFolio).toLocaleDateString('es-MX') %></td>
+              <td><%= i.fechaDeFolio ? new Date(i.fechaDeFolio).toLocaleDateString('es-MX') : '' %></td>
               <td><%= i.partidasCotizadas %></td>
-              <td>$<%= i.montoMaxCotizado.toFixed(2) %></td>
+              <td>$<%= Number(i.montoMaxCotizado || 0).toFixed(2) %></td>
               <td><%= i.dependencia %></td>
-              <td><%= cotizacion.vigenciaDeLaCotizacion !== null ? cotizacion.vigenciaDeLaCotizacion + ' días' : 'Sin vigencia' %></td>
-              <td><%= cotizacion.fechaFinDeLaCotizacion !== null ? cotizacion.fechaFinDeLaCotizacion : 'Sin vigencia' %></td>
+              <td><%= (i.vigenciaDeLaCotizacion ?? '') !== '' ? (i.vigenciaDeLaCotizacion + ' días') : 'Sin vigencia' %></td>
+              <td><%= i.fechaFinDeLaCotizacion ? new Date(i.fechaFinDeLaCotizacion).toLocaleDateString('es-MX') : 'Sin vigencia' %></td>
               <td><%= i.responsableDeLaCotizacion %></td>
               <td><%= i.estatusDeLaCotizacion %></td>
               <td><%= i.partidasAsignadas %></td>
-              <td>$<%= i.montoMaximoAsignado.toFixed(2) %></td>
+              <td>$<%= Number(i.montoMaximoAsignado || 0).toFixed(2) %></td>
             <td>
               <div style="display:flex; gap:1rem; justify-content:center;">
                 <a href="/cotizaciones/editar/<%= i.id %>" class="btn btn-secundario">Editar</a>

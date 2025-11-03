@@ -11,8 +11,8 @@
 
     <form action="<%= cotizacion ? '/cotizaciones/editar/' + cotizacion.id : '/cotizaciones/nueva' %>" method="POST">
 
-      <label for="noDeFolio">No. de Folio:</label>
-      <input type="text" name="noDeFolio" id="noDeFolio" required value="<%= cotizacion ? cotizacion.noDeFolio : '' %>">
+      <label for="noDeFolio">No. de Folio (ID de CONSECUTIVO):</label>
+      <input type="number" name="noDeFolio" id="noDeFolio" required value="<%= cotizacion ? cotizacion.noDeFolio : '' %>">
 
       <label for="fechaDeFolio">Fecha de Folio:</label>
       <input type="date" name="fechaDeFolio" id="fechaDeFolio" required 
@@ -35,8 +35,8 @@
       <input type="date" name="fechaFinDeLaCotizacion" id="fechaFinDeLaCotizacion" 
              value="<%= cotizacion && cotizacion.fechaFinDeLaCotizacion ? cotizacion.fechaFinDeLaCotizacion.toISOString().split('T')[0] : '' %>">
 
-      <label for="responsableDeLaCotizacion">Responsable de la Cotización:</label>
-      <input type="text" name="responsableDeLaCotizacion" id="responsableDeLaCotizacion" value="<%= cotizacion ? cotizacion.responsableDeLaCotizacion : '' %>">
+      <label for="noDeFolio">No. de Folio (ID de CONSECUTIVO):</label>
+      <input type="number" name="noDeFolio" id="noDeFolio" required value="<%= cotizacion ? cotizacion.noDeFolio : '' %>">
 
       <label for="estatusDeLaCotizacion">Estatus de la Cotización:</label>
       <select name="estatusDeLaCotizacion" id="estatusDeLaCotizacion">

@@ -64,7 +64,8 @@
               <% } %>
             </td>
 
-            <td><%= i.diasRestantes_inventario || i.DiasRestantes || '-' %></td>
+            <td><%= (i.diasRestantes_inventario ?? i.DiasRestantes ?? '-') %> <%= (i.diasRestantes_inventario ?? i.DiasRestantes) != null ? 'días' : '' %></td>
+
 
             <td class="<%= 
               i.estadoDelProducto_inventario === 'Vigente' ? 'estado-verde' :

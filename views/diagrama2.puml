@@ -1,0 +1,57 @@
+@startuml
+title Método CSMA/CD — Diagrama de flujo
+
+skinparam backgroundColor #FFFFFF
+skinparam handwritten false
+skinparam shadowing false
+skinparam activity {
+  BorderColor #333333
+  ArrowColor #333333
+  StartColor #333333
+  EndColor #333333
+}
+
+start
+:Inicializar contador de intentos = 0;
+
+' Escucha del medio antes de transmitir
+while (¿El medio está libre?) is (No)
+  :Esperar (canal ocupado);
+  :Volver a escuchar el canal;
+endwhile (Sí)
+
+repeat
+  :Iniciar transmisión de la trama;
+
+  if (¿Se detecta colisión?) then (Sí)
+    :Enviar señal de interferencia (JAM);
+    :Detener transmisión;
+    :intentos = intentos + 1;
+    :Calcular tiempo de backoff:\nBackoff = rand(0..(2^intentos - 1)) * slotTime;
+    :Esperar Backoff;
+    ' Antes de reintentar, asegurarse de que el medio esté libre
+    while (¿El medio está libre?) is (No)
+      :Esperar (canal ocupado);
+      :Volver a escuchar el canal;
+    endwhile (Sí)
+  else (No)
+    :Transmitir datos hasta completar la trama;
+  endif
+
+repeat while (¿Trama completada?) is (No)
+
+:Transmisión exitosa;
+stop
+
+legend right
+Variables y conceptos:
+- intentos: número de reintentos tras colisión.
+- slotTime: tiempo de ranura (depende del medio/velocidad Ethernet).
+- Backoff: retraso aleatorio conforme a
+  el algoritmo de backoff exponencial binario.
+Notas:
+- "Escuchar" es Carrier Sense.
+- La colisión se detecta durante la transmisión (CD).
+- Si hay colisión, se envía JAM y se aplica backoff.
+endlegend
+@enduml

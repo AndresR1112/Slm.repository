@@ -1,88 +1,257 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8">
-  <title><%= cotizacion ? 'Editar' : 'Agregar' %> Cotización</title>
+  <title>
+    <%= cotizacion ? 'Editar' : 'Agregar' %> Cotización
+  </title>
   <link rel="stylesheet" href="/estilos.css">
 </head>
+
 <body>
   <main class="contenedor" style="max-width:800px;">
-    <h2><%= cotizacion ? 'Editar' : 'Agregar nueva' %> cotización</h2>
+    <h2>
+      <%= cotizacion ? 'Editar' : 'Agregar nueva' %> cotización
+    </h2>
 
-    <form action="<%= cotizacion ? '/cotizaciones/editar/' + cotizacion.id : '/cotizaciones/nueva' %>" method="POST">
+    <!-- RUTAS EN PLURAL -->
+    <form action="<%= cotizacion ? ('/cotizaciones/editar/' + cotizacion.id) : '/cotizaciones/nueva' %>" method="POST">
 
-      <label for="noDeFolio">No. de Folio (ID de CONSECUTIVO):</label>
-      <input type="number" name="noDeFolio" id="noDeFolio" required value="<%= cotizacion ? cotizacion.noDeFolio : '' %>">
+      <!-- Folio alfanumérico opcional (si se deja vacío, se genera consecutivo) -->
+      <label for="folioVisible">Folio (alfanumérico, opcional):</label>
+      <input type="text" name="folioVisible" id="folioVisible" placeholder="Deja vacío para generar folio automático"
+        value="<%= cotizacion ? (cotizacion.folioVisible || '') : '' %>">
+
+      <!-- Si quisieras mostrar el id_consecutivo actual (solo lectura), descomenta:
+      <label for="noDeFolio">ID Consecutivo (solo lectura):</label>
+      <input type="number" id="noDeFolio" value="<%= cotizacion ? cotizacion.noDeFolio : '' %>" readonly>
+      -->
 
       <label for="fechaDeFolio">Fecha de Folio:</label>
-      <input type="date" name="fechaDeFolio" id="fechaDeFolio" required 
-             value="<%= cotizacion ? cotizacion.fechaDeFolio.toISOString().split('T')[0] : '' %>">
+      <input type="date" name="fechaDeFolio" id="fechaDeFolio" required
+        value="<%= cotizacion ? (cotizacion.fechaDeFolioYmd || '') : '' %>">
 
       <label for="partidasCotizadas">Partidas Cotizadas:</label>
-      <input type="number" name="partidasCotizadas" id="partidasCotizadas" value="<%= cotizacion ? cotizacion.partidasCotizadas : '' %>">
+      <input type="number" name="partidasCotizadas" id="partidasCotizadas"
+        value="<%= cotizacion ? (cotizacion.partidasCotizadas ?? '') : '' %>">
 
       <label for="montoMaxCotizado">Monto Máx. Cotizado:</label>
-      <input type="number" step="0.01" name="montoMaxCotizado" id="montoMaxCotizado" value="<%= cotizacion ? cotizacion.montoMaxCotizado : '' %>">
+      <input type="number" step="0.01" name="montoMaxCotizado" id="montoMaxCotizado"
+        value="<%= cotizacion ? (cotizacion.montoMaxCotizado ?? '') : '' %>">
 
       <label for="dependencia">Dependencia:</label>
-      <input type="text" name="dependencia" id="dependencia" value="<%= cotizacion ? cotizacion.dependencia : '' %>">
+      <input type="text" name="dependencia" id="dependencia"
+        value="<%= cotizacion ? (cotizacion.dependencia ?? '') : '' %>">
 
       <label for="vigenciaDeLaCotizacion">Vigencia de la Cotización (días):</label>
-      <input type="number" name="vigenciaDeLaCotizacion" id="vigenciaDeLaCotizacion" 
-             value="<%= cotizacion ? cotizacion.vigenciaDeLaCotizacion : '' %>">
+      <input type="number" name="vigenciaDeLaCotizacion" id="vigenciaDeLaCotizacion" min="0" inputmode="numeric"
+        value="<%= cotizacion ? (cotizacion.vigenciaDeLaCotizacion ?? '') : '' %>">
 
       <label for="fechaFinDeLaCotizacion">Fecha Fin de la Cotización:</label>
-      <input type="date" name="fechaFinDeLaCotizacion" id="fechaFinDeLaCotizacion" 
-             value="<%= cotizacion && cotizacion.fechaFinDeLaCotizacion ? cotizacion.fechaFinDeLaCotizacion.toISOString().split('T')[0] : '' %>">
+      <input type="date" name="fechaFinDeLaCotizacion" id="fechaFinDeLaCotizacion"
+        value="<%= cotizacion ? (cotizacion.fechaFinDeLaCotizacionYmd || '') : '' %>">
 
-      <label for="noDeFolio">No. de Folio (ID de CONSECUTIVO):</label>
-      <input type="number" name="noDeFolio" id="noDeFolio" required value="<%= cotizacion ? cotizacion.noDeFolio : '' %>">
+      <!-- Texto de estado de vigencia -->
+      <div id="vigenciaTexto" style="margin:.25rem 0; font-size:.9rem; opacity:.8;">
+        Sin vigencia
+      </div>
+
+      <label for="responsableDeLaCotizacion">Responsable de la Cotización:</label>
+      <select name="responsableDeLaCotizacion" id="responsableDeLaCotizacion" required>
+        <option value="">Selecciona un usuario...</option>
+        <% usuarios.forEach(u=> { %>
+          <option value="<%= u.id_usuario %>" <%=cotizacion && cotizacion.responsableDeLaCotizacion==u.id_usuario
+            ? 'selected' : '' %>>
+            <%= u.nombre_usuario %>
+          </option>
+          <% }) %>
+      </select>
+
 
       <label for="estatusDeLaCotizacion">Estatus de la Cotización:</label>
       <select name="estatusDeLaCotizacion" id="estatusDeLaCotizacion">
-        <option value="pendiente" <%= cotizacion && cotizacion.estatusDeLaCotizacion === 'pendiente' ? 'selected' : '' %>>Pendiente</option>
-        <option value="aprobada" <%= cotizacion && cotizacion.estatusDeLaCotizacion === 'aprobada' ? 'selected' : '' %>>Aprobada</option>
-        <option value="rechazada" <%= cotizacion && cotizacion.estatusDeLaCotizacion === 'rechazada' ? 'selected' : '' %>>Rechazada</option>
+        <option value="pendiente" <%=cotizacion && cotizacion.estatusDeLaCotizacion==='pendiente' ? 'selected' : '' %>
+          >Pendiente</option>
+        <option value="aprobada" <%=cotizacion && cotizacion.estatusDeLaCotizacion==='aprobada' ? 'selected' : '' %>
+          >Aprobada</option>
+        <option value="rechazada" <%=cotizacion && cotizacion.estatusDeLaCotizacion==='rechazada' ? 'selected' : '' %>
+          >Rechazada</option>
       </select>
 
       <label for="partidasAsignadas">Partidas Asignadas:</label>
-      <input type="number" name="partidasAsignadas" id="partidasAsignadas" value="<%= cotizacion ? cotizacion.partidasAsignadas : '' %>">
+      <input type="number" name="partidasAsignadas" id="partidasAsignadas"
+        value="<%= cotizacion ? (cotizacion.partidasAsignadas ?? '') : '' %>">
 
       <label for="montoMaximoAsignado">Monto Máx. Asignado:</label>
-      <input type="number" step="0.01" name="montoMaximoAsignado" id="montoMaximoAsignado" value="<%= cotizacion ? cotizacion.montoMaximoAsignado : '' %>">
+      <input type="number" step="0.01" name="montoMaximoAsignado" id="montoMaximoAsignado"
+        value="<%= cotizacion ? (cotizacion.montoMaximoAsignado ?? '') : '' %>">
 
-      <!-- Botones -->
       <div style="display:flex; gap:1rem; margin-top:1rem;">
-        <button type="submit" class="btn btn-exito"><%= cotizacion ? 'Actualizar' : 'Agregar' %></button>
+        <button type="submit" class="btn btn-exito">
+          <%= cotizacion ? 'Actualizar' : 'Agregar' %>
+        </button>
         <a href="/cotizaciones" class="btn btn-secundario">Cancelar</a>
       </div>
     </form>
   </main>
 
+  <!-- JS del cliente para cálculo bidireccional y "Sin vigencia" -->
   <script>
-    // --- Referencias a los campos ---
+  (function () {
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+    const parseDateLocal = (str) => {
+      if (!str) return null;
+      const [y, m, d] = str.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+      return dt;
+    };
+
+    const formatDateLocal = (dt) => {
+      if (!dt) return '';
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const d = String(dt.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+
+    const addDaysLocal = (dt, days) => {
+      const c = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+      c.setDate(c.getDate() + days);
+      return c;
+    };
+
+    const diffDaysLocal = (a, b) => {
+      const a0 = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+      const b0 = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+      return Math.round((b0 - a0) / MS_PER_DAY);
+    };
+
     const fechaFolio = document.getElementById('fechaDeFolio');
-    const fechaFin = document.getElementById('fechaFinDeLaCotizacion');
-    const vigencia = document.getElementById('vigenciaDeLaCotizacion');
+    const fechaFin   = document.getElementById('fechaFinDeLaCotizacion');
+    const vigencia   = document.getElementById('vigenciaDeLaCotizacion');
+    const vigTxt     = document.getElementById('vigenciaTexto');
 
-    // Si cambia la fecha fin → calcular vigencia automáticamente
-    fechaFin?.addEventListener('change', () => {
-      if (fechaFolio.value && fechaFin.value) {
-        const inicio = new Date(fechaFolio.value);
-        const fin = new Date(fechaFin.value);
-        const dias = Math.round((fin - inicio) / (1000 * 60 * 60 * 24));
-        vigencia.value = dias >= 0 ? dias : '';
-      }
-    });
+    let updating = false; // evita loops
 
-    // Si cambia la vigencia → calcular fecha fin automáticamente
-    vigencia?.addEventListener('input', () => {
-      if (fechaFolio.value && vigencia.value) {
-        const inicio = new Date(fechaFolio.value);
-        inicio.setDate(inicio.getDate() + parseInt(vigencia.value));
-        fechaFin.value = inicio.toISOString().split('T')[0];
+    const pintar = () => {
+      const d = (vigencia?.value ?? '').trim();
+      const f = (fechaFin?.value ?? '').trim();
+      if (d === '' && f === '') { vigTxt.textContent = 'Sin vigencia'; return; }
+      if (d !== '' && f !== '') { vigTxt.textContent = `Vigencia: ${d} día(s) • Fin: ${f}`; return; }
+      if (d !== '')             { vigTxt.textContent = `Vigencia: ${d} día(s)`; return; }
+      if (f !== '')             { vigTxt.textContent = `Fin: ${f}`; return; }
+      vigTxt.textContent = 'Sin vigencia';
+    };
+
+    const setIfChanged = (el, newVal) => {
+      if (el && el.value !== newVal) el.value = newVal;
+    };
+
+    function syncMinFechaFin() {
+      const inicio = parseDateLocal(fechaFolio.value);
+      if (inicio) {
+        fechaFin.min = formatDateLocal(inicio);
+      } else {
+        fechaFin.removeAttribute('min');
       }
+    }
+
+    // Usuario edita "Vigencia" -> calcular/ajustar "Fecha fin"
+    function onVigenciaInput() {
+      if (updating) return;
+      updating = true;
+
+      const inicio = parseDateLocal(fechaFolio.value);
+      const vStr   = (vigencia.value ?? '').trim();
+
+      if (!inicio) {
+        // sin inicio no forzamos nada
+        updating = false;
+        pintar();
+        return;
+      }
+
+      syncMinFechaFin();
+
+      if (vStr === '') {
+        // usuario borró días: no tocamos fecha fin (deja su valor si lo tiene)
+        updating = false;
+        pintar();
+        return;
+      }
+
+      const v = Number(vStr);
+      if (Number.isFinite(v) && v >= 0) {
+        const finCalc = formatDateLocal(addDaysLocal(inicio, v));
+        // Solo actualiza si cambia para evitar parpadeos
+        setIfChanged(fechaFin, finCalc);
+      }
+
+      updating = false;
+      pintar();
+    }
+
+    // Usuario edita "Fecha fin" -> calcular/ajustar "Vigencia"
+    function onFechaFinChange() {
+      if (updating) return;
+      updating = true;
+
+      const inicio = parseDateLocal(fechaFolio.value);
+      const fin    = parseDateLocal(fechaFin.value);
+
+      if (!inicio) {
+        updating = false;
+        pintar();
+        return;
+      }
+
+      syncMinFechaFin();
+
+      if (!fin) {
+        // usuario limpió fecha fin: no tocamos días (evitamos pisar)
+        updating = false;
+        pintar();
+        return;
+      }
+
+      const d = diffDaysLocal(inicio, fin);
+      setIfChanged(vigencia, d >= 0 ? String(d) : '');
+
+      updating = false;
+      pintar();
+    }
+
+    // Usuario cambia "Fecha de folio" -> recalculamos lo otro si corresponde
+    function onFechaFolioChange() {
+      syncMinFechaFin();
+
+      // Si hay fecha fin, recalcula días; si no, si hay días, recalcula fecha fin; si ninguno, pinta
+      if ((fechaFin.value ?? '').trim() !== '') {
+        onFechaFinChange();
+      } else if ((vigencia.value ?? '').trim() !== '') {
+        onVigenciaInput();
+      } else {
+        pintar();
+      }
+    }
+
+    fechaFolio && fechaFolio.addEventListener('change', onFechaFolioChange);
+    vigencia   && vigencia.addEventListener('input',  onVigenciaInput);
+    // IMPORTANTE: para date usamos 'change' (no 'input') para evitar parpadeos al elegir fecha
+    fechaFin   && fechaFin.addEventListener('change', onFechaFinChange);
+
+    window.addEventListener('DOMContentLoaded', () => {
+      syncMinFechaFin();
+      onFechaFolioChange();
+      pintar();
     });
-  </script>
+  })();
+</script>
+
+
 </body>
+
 </html>

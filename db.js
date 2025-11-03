@@ -1,13 +1,14 @@
 // db.js
 const mysql = require('mysql2');
 
-/* Servidor
+/*
+ Servidor
 const pool = mysql.createPool({
-    host: '162.240.178.133',   // IP de tu VPS o jartnash.com si apunta al VPS
+    host: '162.240.233.237',   // IP de tu VPS o jartnash.com si apunta al VPS
     port: 3306,                // Aseg�rate de especificar el puerto si es distinto del 3306
-    user: 'jartnash_root',
-    password: 'Sologmedic.12345',
-    database: 'jartnash_programa',
+    user: 'root',
+    password: 'Solog.12345',
+    database: 'sologmedic_database',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,

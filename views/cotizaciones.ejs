@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Cotizaciones</title>
   <link rel="stylesheet" href="/estilos.css" />
 </head>
+
 <body>
   <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
 
@@ -32,7 +34,7 @@
     <table>
       <thead>
         <tr>
-          <th>No. de Folio</th>
+          <th>Folio</th>
           <th>Fecha de Folio</th>
           <th>Partidas Cotizadas</th>
           <th>Monto Máx. Cotizado</th>
@@ -47,29 +49,53 @@
         </tr>
       </thead>
       <tbody>
-        <% cotizaciones.forEach(i => { %>
+        <% cotizaciones.forEach(i=> { %>
           <tr>
-              <td><%= i.noDeFolio %></td>
-              <td><%= i.fechaDeFolio ? new Date(i.fechaDeFolio).toLocaleDateString('es-MX') : '' %></td>
-              <td><%= i.partidasCotizadas %></td>
-              <td>$<%= Number(i.montoMaxCotizado || 0).toFixed(2) %></td>
-              <td><%= i.dependencia %></td>
-              <td><%= (i.vigenciaDeLaCotizacion ?? '') !== '' ? (i.vigenciaDeLaCotizacion + ' días') : 'Sin vigencia' %></td>
-              <td><%= i.fechaFinDeLaCotizacion ? new Date(i.fechaFinDeLaCotizacion).toLocaleDateString('es-MX') : 'Sin vigencia' %></td>
-              <td><%= i.responsableDeLaCotizacion %></td>
-              <td><%= i.estatusDeLaCotizacion %></td>
-              <td><%= i.partidasAsignadas %></td>
-              <td>$<%= Number(i.montoMaximoAsignado || 0).toFixed(2) %></td>
+            <!-- 👇 Si hay folio alfanumérico lo muestra, si no, el consecutivo -->
+            <td>
+              <%= i.folioVisible || i.noDeFolioFK || '—' %>
+            </td>
+
+            <td>
+              <%= i.fechaDeFolio ? new Date(i.fechaDeFolio).toLocaleDateString('es-MX') : '' %>
+            </td>
+            <td>
+              <%= i.partidasCotizadas %>
+            </td>
+            <td>$<%= Number(i.montoMaxCotizado || 0).toFixed(2) %>
+            </td>
+            <td>
+              <%= i.dependencia || '' %>
+            </td>
+            <td>
+              <%= (i.vigenciaDeLaCotizacion ?? '' ) !=='' ? (i.vigenciaDeLaCotizacion + ' días' ) : 'Sin vigencia' %>
+            </td>
+            <td>
+              <%= i.fechaFinDeLaCotizacion ? new Date(i.fechaFinDeLaCotizacion).toLocaleDateString('es-MX')
+                : 'Sin vigencia' %>
+            </td>
+            <td>
+              <%= i.responsableDeLaCotizacion || '' %>
+            </td>
+            <td>
+              <%= i.estatusDeLaCotizacion %>
+            </td>
+            <td>
+              <%= i.partidasAsignadas %>
+            </td>
+            <td>$<%= Number(i.montoMaximoAsignado || 0).toFixed(2) %>
+            </td>
             <td>
               <div style="display:flex; gap:1rem; justify-content:center;">
                 <a href="/cotizaciones/editar/<%= i.id %>" class="btn btn-secundario">Editar</a>
-                <form action="/cotizaciones/eliminar/<%= i.id %>" method="GET" style="margin:0;" onsubmit="return confirm('¿Seguro que quieres eliminar esta cotización?');">
+                <form action="/cotizaciones/eliminar/<%= i.id %>" method="GET" style="margin:0;"
+                  onsubmit="return confirm('¿Seguro que quieres eliminar esta cotización?');">
                   <button type="submit" class="btn btn-danger">Eliminar</button>
                 </form>
               </div>
             </td>
           </tr>
-        <% }) %>
+          <% }) %>
       </tbody>
     </table>
   </main>
@@ -78,4 +104,5 @@
     <a href="/logout" class="btn-logout">Cerrar sesión</a>
   </form>
 </body>
+
 </html>

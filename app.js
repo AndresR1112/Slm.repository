@@ -322,8 +322,6 @@ app.post('/catalogo/eliminar/:id', estaLogueado, async (req, res) => {
   }
 });
 
-// ------------------------ ENTRADAS ------------------------ 
-
 // ========================= ENTRADAS =========================
 
 // GET: Mostrar todas las entradas
@@ -628,9 +626,9 @@ app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
 
 // ========================= SALIDAS (ajustado a tu BD + aliases para tu EJS) =========================
 
-  app.get('/salidas', estaLogueado, async (req, res) => {
-    try {
-      const [salidas] = await db.query(`
+app.get('/salidas', estaLogueado, async (req, res) => {
+  try {
+    const [salidas] = await db.query(`
         SELECT
           s.id_salida                  AS Id,
           s.ordenDeCompra_salida      AS orden_de_compra,
@@ -650,20 +648,20 @@ app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
         ORDER BY s.fecha_salida DESC
       `);
 
-      res.render('salidas', { salidas, usuario: req.session.usuario });
-    } catch (err) {
-      console.error('Error cargando salidas:', err);
-      res.send('Error cargando salidas');
-    }
-  });
+    res.render('salidas', { salidas, usuario: req.session.usuario });
+  } catch (err) {
+    console.error('Error cargando salidas:', err);
+    res.send('Error cargando salidas');
+  }
+});
 
-  // ========================= SALIDAS: BUSCAR POR ORDEN =========================
-  app.get('/salidas/buscar', estaLogueado, async (req, res) => {
-    const orden = req.query.orden_buscar?.toString().trim();
-    if (!orden) return res.redirect('/salidas');
+// ========================= SALIDAS: BUSCAR POR ORDEN =========================
+app.get('/salidas/buscar', estaLogueado, async (req, res) => {
+  const orden = req.query.orden_buscar?.toString().trim();
+  if (!orden) return res.redirect('/salidas');
 
-    try {
-      const [salidas] = await db.query(`
+  try {
+    const [salidas] = await db.query(`
         SELECT
           s.id_salida                  AS Id,
           s.ordenDeCompra_salida      AS orden_de_compra,
@@ -684,27 +682,27 @@ app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
         ORDER BY s.fecha_salida DESC
       `, [orden]);
 
-      res.render('salidas', { salidas, usuario: req.session.usuario });
-    } catch (err) {
-      console.error('Error buscando orden de compra:', err);
-      res.send('Error buscando orden de compra');
-    }
-  });
+    res.render('salidas', { salidas, usuario: req.session.usuario });
+  } catch (err) {
+    console.error('Error buscando orden de compra:', err);
+    res.send('Error buscando orden de compra');
+  }
+});
 
 
-  // NUEVA: FORMULARIO (clientes/productos + lotes precargados en la vista)
-  //  - El <select Lote> se llena en el navegador filtrando window.LOTES (sin API).
-  app.get('/salidas/nueva', estaLogueado, async (req, res) => {
-    try {
-      // Clientes -> { Id, Nombre }
-      const [clientes] = await db.query(`
+// NUEVA: FORMULARIO (clientes/productos + lotes precargados en la vista)
+//  - El <select Lote> se llena en el navegador filtrando window.LOTES (sin API).
+app.get('/salidas/nueva', estaLogueado, async (req, res) => {
+  try {
+    // Clientes -> { Id, Nombre }
+    const [clientes] = await db.query(`
         SELECT id_cliente AS Id, nombre_cliente AS Nombre
         FROM CLIENTE
         ORDER BY nombre_cliente ASC
       `);
 
-      // Productos con presencia en inventario (stock > 0) -> { Codigo, Nombre }
-      const [productos] = await db.query(`
+    // Productos con presencia en inventario (stock > 0) -> { Codigo, Nombre }
+    const [productos] = await db.query(`
         SELECT
           c.clave_catalogo        AS Codigo,
           c.nombreProdu_catalogo  AS Nombre
@@ -715,8 +713,8 @@ app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
         ORDER BY c.nombreProdu_catalogo ASC
       `);
 
-      // Lotes disponibles (stock > 0) -> { Producto (Codigo), Lote, Caducidad, Stock }
-      const [lotes] = await db.query(`
+    // Lotes disponibles (stock > 0) -> { Producto (Codigo), Lote, Caducidad, Stock }
+    const [lotes] = await db.query(`
         SELECT
           c.clave_catalogo        AS Producto,
           i.lote_inventario       AS Lote,
@@ -728,141 +726,141 @@ app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
         ORDER BY c.nombreProdu_catalogo ASC, i.lote_inventario ASC
       `);
 
-      // Objeto "salida" vacío para reusar la misma vista
-      const salida = {
-        Id: 0,
-        orden_de_compra: '',
-        Fecha: new Date(),
-        ClienteId: null,
-        Producto: '',    // Codigo
-        Lote: '',
-        Cantidad: '',
-        Precio_Venta: '',
-        Total_Facturado: '',
-        Folio_de_Facturacion: ''
-      };
+    // Objeto "salida" vacío para reusar la misma vista
+    const salida = {
+      Id: 0,
+      orden_de_compra: '',
+      Fecha: new Date(),
+      ClienteId: null,
+      Producto: '',    // Codigo
+      Lote: '',
+      Cantidad: '',
+      Precio_Venta: '',
+      Total_Facturado: '',
+      Folio_de_Facturacion: ''
+    };
 
-      res.render('editar_salida', { salida, clientes, productos, lotes, usuario: req.session.usuario });
-    } catch (err) {
-      console.error('Error cargando formulario de nueva salida:', err);
-      res.send('Error cargando formulario de nueva salida');
-    }
-  });
+    res.render('editar_salida', { salida, clientes, productos, lotes, usuario: req.session.usuario });
+  } catch (err) {
+    console.error('Error cargando formulario de nueva salida:', err);
+    res.send('Error cargando formulario de nueva salida');
+  }
+});
 
-  // NUEVA: PROCESAR
-  app.post('/salidas/nueva', estaLogueado, async (req, res) => {
-    const conn = await db.getConnection();
-    try {
-      let { Fecha, ClienteId, Producto, Lote, Cantidad, Precio_Venta, Total_Facturado, orden_de_compra, Folio_de_Facturacion } = req.body;
-      const cantidadNum = parseInt(Cantidad, 10);
+// NUEVA: PROCESAR
+app.post('/salidas/nueva', estaLogueado, async (req, res) => {
+  const conn = await db.getConnection();
+  try {
+    let { Fecha, ClienteId, Producto, Lote, Cantidad, Precio_Venta, Total_Facturado, orden_de_compra, Folio_de_Facturacion } = req.body;
+    const cantidadNum = parseInt(Cantidad, 10);
 
-      await conn.beginTransaction();
+    await conn.beginTransaction();
 
-      // Convertir Producto (Codigo/clave_catalogo) -> id_catalogo
-      const [[cat]] = await conn.query(
-        `SELECT id_catalogo FROM CATALOGO WHERE clave_catalogo = ?`,
-        [Producto]
-      );
-      if (!cat) {
-        await conn.rollback();
-        return res.send(`
+    // Convertir Producto (Codigo/clave_catalogo) -> id_catalogo
+    const [[cat]] = await conn.query(
+      `SELECT id_catalogo FROM CATALOGO WHERE clave_catalogo = ?`,
+      [Producto]
+    );
+    if (!cat) {
+      await conn.rollback();
+      return res.send(`
           <h2 style="color:red;">Error: Código de producto inválido</h2>
           <a href="/salidas/nueva"><button>Volver</button></a>
         `);
-      }
+    }
 
-      // Buscar inventario por (id_catalogo, Lote)
-      const [[inv]] = await conn.query(`
+    // Buscar inventario por (id_catalogo, Lote)
+    const [[inv]] = await conn.query(`
         SELECT id_inventario, stock_inventario, caducidad_inventario
         FROM INVENTARIO
         WHERE producto_FKinventario = ? AND lote_inventario = ?
         FOR UPDATE
       `, [cat.id_catalogo, Lote]);
 
-      if (!inv || inv.stock_inventario < cantidadNum) {
-        await conn.rollback();
-        return res.send(`
+    if (!inv || inv.stock_inventario < cantidadNum) {
+      await conn.rollback();
+      return res.send(`
           <h2 style="color:red;">Error: Stock insuficiente o lote inexistente</h2>
           <a href="/salidas/nueva"><button>Volver</button></a>
         `);
-      }
+    }
 
-      // Orden de compra (si no viene, usar consecutivo)
-      let ordenOC = (orden_de_compra && `${orden_de_compra}`.trim() !== '') ? `${orden_de_compra}`.trim() : null;
-      if (!ordenOC) {
-        const [[row]] = await conn.query(
-          `SELECT * FROM CONSECUTIVO WHERE nombre = 'orden_de_compra' FOR UPDATE`
-        );
-        if (!row) {
-          await conn.query(`INSERT INTO CONSECUTIVO (nombre, ultimoValor) VALUES ('orden_de_compra', 0)`);
-        }
-        const [[row2]] = await conn.query(
-          `SELECT * FROM CONSECUTIVO WHERE nombre = 'orden_de_compra' FOR UPDATE`
-        );
-        const siguiente = Number(row2.ultimoValor) + 1;
-        await conn.query(
-          `UPDATE CONSECUTIVO SET ultimoValor = ? WHERE id_consecutivo = ?`,
-          [siguiente, row2.id_consecutivo]
-        );
-        ordenOC = String(siguiente);
+    // Orden de compra (si no viene, usar consecutivo)
+    let ordenOC = (orden_de_compra && `${orden_de_compra}`.trim() !== '') ? `${orden_de_compra}`.trim() : null;
+    if (!ordenOC) {
+      const [[row]] = await conn.query(
+        `SELECT * FROM CONSECUTIVO WHERE nombre = 'orden_de_compra' FOR UPDATE`
+      );
+      if (!row) {
+        await conn.query(`INSERT INTO CONSECUTIVO (nombre, ultimoValor) VALUES ('orden_de_compra', 0)`);
       }
+      const [[row2]] = await conn.query(
+        `SELECT * FROM CONSECUTIVO WHERE nombre = 'orden_de_compra' FOR UPDATE`
+      );
+      const siguiente = Number(row2.ultimoValor) + 1;
+      await conn.query(
+        `UPDATE CONSECUTIVO SET ultimoValor = ? WHERE id_consecutivo = ?`,
+        [siguiente, row2.id_consecutivo]
+      );
+      ordenOC = String(siguiente);
+    }
 
-      // Insertar salida
-      await conn.query(`
+    // Insertar salida
+    await conn.query(`
         INSERT INTO SALIDA
           (ordenDeCompra_salida, fecha_salida, id_cliente, id_inventario, lote, cantidad,
           precioDeVenta_salida, totalFacturado_salida, folioDeFacturacion_salida)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
-        ordenOC,
-        Fecha,
-        ClienteId,
-        inv.id_inventario,
-        Lote,
-        cantidadNum,
-        Precio_Venta,
-        Total_Facturado,
-        Folio_de_Facturacion || null
-      ]);
+      ordenOC,
+      Fecha,
+      ClienteId,
+      inv.id_inventario,
+      Lote,
+      cantidadNum,
+      Precio_Venta,
+      Total_Facturado,
+      Folio_de_Facturacion || null
+    ]);
 
-      // Descontar inventario
-      await conn.query(`
+    // Descontar inventario
+    await conn.query(`
         UPDATE INVENTARIO
           SET stock_inventario = stock_inventario - ?,
               diasRestantes_inventario = DATEDIFF(caducidad_inventario, CURDATE())
         WHERE id_inventario = ?
       `, [cantidadNum, inv.id_inventario]);
 
-      // Si quedó en 0, no borrar (evita cascada), solo marcar Agotado
-      const [[rev]] = await conn.query(
-        `SELECT stock_inventario FROM INVENTARIO WHERE id_inventario = ?`,
-        [inv.id_inventario]
-      );
-      if (rev && Number(rev.stock_inventario) === 0) {
-        await conn.query(`
+    // Si quedó en 0, no borrar (evita cascada), solo marcar Agotado
+    const [[rev]] = await conn.query(
+      `SELECT stock_inventario FROM INVENTARIO WHERE id_inventario = ?`,
+      [inv.id_inventario]
+    );
+    if (rev && Number(rev.stock_inventario) === 0) {
+      await conn.query(`
           UPDATE INVENTARIO
             SET estadoDelProducto_inventario = 'Agotado'
           WHERE id_inventario = ?
         `, [inv.id_inventario]);
-      }
-
-      await conn.commit();
-      res.redirect('/salidas');
-    } catch (err) {
-      await conn.rollback();
-      console.error('Error procesando nueva salida:', err);
-      res.send('Error procesando nueva salida');
-    } finally {
-      conn.release();
     }
-  });
 
-  // EDITAR: FORMULARIO (aliaseado EXACTO a tu EJS)
-  app.get('/salidas/editar/:id', estaLogueado, async (req, res) => {
-    const salidaId = req.params.id;
-    try {
-      // salida -> con los nombres que espera tu EJS
-      const [[salida]] = await db.query(`
+    await conn.commit();
+    res.redirect('/salidas');
+  } catch (err) {
+    await conn.rollback();
+    console.error('Error procesando nueva salida:', err);
+    res.send('Error procesando nueva salida');
+  } finally {
+    conn.release();
+  }
+});
+
+// EDITAR: FORMULARIO (aliaseado EXACTO a tu EJS)
+app.get('/salidas/editar/:id', estaLogueado, async (req, res) => {
+  const salidaId = req.params.id;
+  try {
+    // salida -> con los nombres que espera tu EJS
+    const [[salida]] = await db.query(`
         SELECT
           s.id_salida                  AS Id,
           s.ordenDeCompra_salida      AS orden_de_compra,
@@ -881,17 +879,17 @@ app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
         WHERE s.id_salida = ?
       `, [salidaId]);
 
-      if (!salida) return res.send('Salida no encontrada');
+    if (!salida) return res.send('Salida no encontrada');
 
-      // clientes -> { Id, Nombre }
-      const [clientes] = await db.query(`
+    // clientes -> { Id, Nombre }
+    const [clientes] = await db.query(`
         SELECT id_cliente AS Id, nombre_cliente AS Nombre
         FROM CLIENTE
         ORDER BY nombre_cliente ASC
       `);
 
-      // productos -> { Codigo, Nombre } (con presencia en inventario)
-      const [productos] = await db.query(`
+    // productos -> { Codigo, Nombre } (con presencia en inventario)
+    const [productos] = await db.query(`
         SELECT
           c.clave_catalogo        AS Codigo,
           c.nombreProdu_catalogo  AS Nombre
@@ -901,9 +899,9 @@ app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
         ORDER BY c.nombreProdu_catalogo ASC
       `);
 
-      // Lotes que se enviarán a la vista para que el JS los filtre allí
-      // Incluye el lote actual aunque esté en 0
-      const [lotes] = await db.query(`
+    // Lotes que se enviarán a la vista para que el JS los filtre allí
+    // Incluye el lote actual aunque esté en 0
+    const [lotes] = await db.query(`
         SELECT
           c.clave_catalogo        AS Producto,
           i.lote_inventario       AS Lote,
@@ -915,15 +913,15 @@ app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
         ORDER BY c.nombreProdu_catalogo ASC, i.lote_inventario ASC
       `, [salida.id_inventario]);
 
-      res.render('editar_salida', { salida, clientes, productos, lotes, usuario: req.session.usuario });
-    } catch (err) {
-      console.error('Error cargando salida para editar:', err);
-      res.send('Error cargando salida para editar');
-    }
-  });
+    res.render('editar_salida', { salida, clientes, productos, lotes, usuario: req.session.usuario });
+  } catch (err) {
+    console.error('Error cargando salida para editar:', err);
+    res.send('Error cargando salida para editar');
+  }
+});
 
 
-  // EDITAR: PROCESAR (Producto llega como Codigo -> resolver a id_catalogo)
+// EDITAR: PROCESAR (Producto llega como Codigo -> resolver a id_catalogo)
 // Manejo por DELTA si no cambia el inventario (mismo producto+lote)
 app.post('/salidas/editar/:id', estaLogueado, async (req, res) => {
   const salidaId = req.params.id;
@@ -1237,9 +1235,9 @@ app.get('/inventario', estaLogueado, async (req, res) => {
   }
 });
 
-
 // ------------------------ CLIENTES ------------------------
-// Mostrar todos los clientes
+
+// Listar clientes
 app.get('/clientes', estaLogueado, async (req, res) => {
   try {
     const [resultados] = await db.query(`
@@ -1263,15 +1261,29 @@ app.get('/clientes', estaLogueado, async (req, res) => {
   }
 });
 
-// Mostrar formulario para agregar cliente
-app.get('/clientes/nuevo', estaLogueado, (req, res) => {
-  res.render('agregar_cliente', {
+// ---------- NUEVO: usar la MISMA vista para crear ----------
+
+// GET: Formulario NUEVO (misma vista que editar)
+app.get('/clientes/nuevo', estaLogueado, async (req, res) => {
+  // objeto vacío compatible con el EJS
+  const cliente = {
+    Id: 0,
+    Nombre: '',
+    RFC: '',
+    Direccion: '',
+    Telefono: '',
+    Correo: ''
+  };
+
+  res.render('editar_cliente', {
+    editar: false,
+    cliente,
     usuario: req.session.usuario
   });
 });
 
-// Procesar nuevo cliente
-app.post('/clientes/agregar', async (req, res) => {
+// POST: Guardar NUEVO (ruta alineada con el EJS)
+app.post('/clientes/nuevo', estaLogueado, async (req, res) => {
   const { Nombre, RFC, Direccion, Telefono, Correo } = req.body;
   const sql = `
     INSERT INTO CLIENTE
@@ -1282,13 +1294,14 @@ app.post('/clientes/agregar', async (req, res) => {
     await db.query(sql, [Nombre, RFC, Direccion, Telefono, Correo]);
     res.redirect('/clientes');
   } catch (err) {
-    console.error(err);
-    // Puedes manejar duplicados por UNIQUE (RFC/telefono/correo) aquí si quieres
+    console.error('Error al agregar cliente:', err);
     res.send('Error al agregar cliente');
   }
 });
 
-// Mostrar formulario para editar cliente
+// ---------- EDITAR: usa la MISMA vista ----------
+
+// GET: Formulario EDITAR
 app.get('/clientes/editar/:id', estaLogueado, async (req, res) => {
   const clienteId = req.params.id;
   try {
@@ -1304,34 +1317,35 @@ app.get('/clientes/editar/:id', estaLogueado, async (req, res) => {
       WHERE id_cliente = ?
     `, [clienteId]);
 
-    if (resultados.length === 0) {
-      return res.send('Cliente no encontrado');
-    }
+    if (resultados.length === 0) return res.send('Cliente no encontrado');
 
     res.render('editar_cliente', {
+      editar: true,
       cliente: resultados[0],
       usuario: req.session.usuario
     });
   } catch (err) {
-    console.error(err);
+    console.error('Error al cargar cliente:', err);
     res.send('Error al cargar cliente');
   }
 });
 
-// Procesar edición de cliente
-app.post('/clientes/editar/:id', async (req, res) => {
+// POST: Procesar EDICIÓN
+app.post('/clientes/editar/:id', estaLogueado, async (req, res) => {
   const clienteId = req.params.id;
   const { Nombre, RFC, Direccion, Telefono, Correo } = req.body;
 
-  const sqlUpdateCliente = `
+  const sqlUpdate = `
     UPDATE CLIENTE
-    SET nombre_cliente = ?, RFC_cliente = ?, direccion_cliente = ?, telefono_cliente = ?, correo_cliente = ?
-    WHERE id_cliente = ?
+       SET nombre_cliente = ?,
+           RFC_cliente = ?,
+           direccion_cliente = ?,
+           telefono_cliente = ?,
+           correo_cliente = ?
+     WHERE id_cliente = ?
   `;
-
   try {
-    await db.query(sqlUpdateCliente, [Nombre, RFC, Direccion, Telefono, Correo, clienteId]);
-    // ❌ No actualizamos SALIDA aquí: no existe columna ClienteNombre en SALIDA y la FK ya apunta por id_cliente
+    await db.query(sqlUpdate, [Nombre, RFC, Direccion, Telefono, Correo, clienteId]);
     res.redirect('/clientes');
   } catch (err) {
     console.error('Error al actualizar cliente:', err);
@@ -1340,9 +1354,8 @@ app.post('/clientes/editar/:id', async (req, res) => {
 });
 
 // Eliminar cliente
-app.post('/clientes/eliminar/:id', async (req, res) => {
+app.post('/clientes/eliminar/:id', estaLogueado, async (req, res) => {
   const clienteId = req.params.id;
-
   try {
     await db.query('DELETE FROM CLIENTE WHERE id_cliente = ?', [clienteId]);
     res.redirect('/clientes');
@@ -1351,227 +1364,334 @@ app.post('/clientes/eliminar/:id', async (req, res) => {
     res.send('Error al eliminar cliente');
   }
 });
-
-// ------- Utilidad para calcular vigencia/fecha fin -------
+// ======================================== COTIZACIONES ========================================
+// ===== Utilidades de fechas (local) =====
+function formatDateLocal(date) { if (!date) return null; const y = date.getFullYear(); const m = String(date.getMonth() + 1).padStart(2, '0'); const d = String(date.getDate()).padStart(2, '0'); return `${y}-${m}-${d}`; }
+function parseDateLocal(s) { if (!s) return null; const [y, m, d] = String(s).split('-').map(Number); const dt = new Date(y, m - 1, d); if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null; return dt; }
+function addDaysLocal(dt, days) { const c = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); c.setDate(c.getDate() + days); return c; }
+function diffDaysLocal(a, b) { const MS = 86400000; const a0 = new Date(a.getFullYear(), a.getMonth(), a.getDate()); const b0 = new Date(b.getFullYear(), b.getMonth(), b.getDate()); return Math.round((b0 - a0) / MS); }
 function calcularVigenciaYFechaFin(fechaDeFolio, vigenciaInput, fechaFinInput) {
-  let vigencia = (vigenciaInput && String(vigenciaInput).trim() !== '') ? parseInt(vigenciaInput) : null;
-  let fechaFin = (fechaFinInput && String(fechaFinInput).trim() !== '') ? fechaFinInput : null;
-
-  if (vigencia && !fechaFin) {
-    const inicio = new Date(fechaDeFolio);
-    const fin = new Date(inicio);
-    fin.setDate(inicio.getDate() + vigencia);
-    fechaFin = fin.toISOString().split('T')[0];
-  }
-
-  if (fechaFin && !vigencia) {
-    const inicio = new Date(fechaDeFolio);
-    const fin = new Date(fechaFin);
-    vigencia = Math.round((fin - inicio) / (1000 * 60 * 60 * 24));
-  }
-
-  if (!fechaFin && !vigencia) {
-    fechaFin = null;
-    vigencia = null;
-  }
-  return { vigencia, fechaFin };
+  const inicio = parseDateLocal(fechaDeFolio);
+  if (!inicio) return { vigencia: null, fechaFin: null };
+  const vStr = (vigenciaInput ?? '').toString().trim();
+  const fStr = (fechaFinInput ?? '').toString().trim();
+  let vigencia = (vStr !== '' && !Number.isNaN(Number(vStr))) ? Number(vStr) : null;
+  let fechaFin = fStr !== '' ? parseDateLocal(fStr) : null;
+  if (vigencia !== null && vigencia >= 0 && !fechaFin) { fechaFin = addDaysLocal(inicio, vigencia); }
+  else if ((vigencia === null || Number.isNaN(vigencia)) && fechaFin) { const dias = diffDaysLocal(inicio, fechaFin); vigencia = dias >= 0 ? dias : null; }
+  else if (vigencia !== null && fechaFin) { fechaFin = addDaysLocal(inicio, Math.max(0, vigencia)); }
+  else { return { vigencia: null, fechaFin: null }; }
+  if (vigencia !== null && (!Number.isFinite(vigencia) || vigencia < 0)) vigencia = null;
+  const fechaFinStr = fechaFin ? formatDateLocal(fechaFin) : null;
+  return { vigencia, fechaFin: fechaFinStr };
 }
 
-// ==================== COTIZACIONES ====================
+// === Helpers para CONSECUTIVO(nombre='cotizacion') ===
+async function getConsecutivoCotizacionId(conn) {
+  const [r] = await conn.query('SELECT id_consecutivo FROM CONSECUTIVO WHERE nombre=? LIMIT 1', ['cotizacion']);
+  if (r.length) return r[0].id_consecutivo;
+  const [ins] = await conn.query('INSERT INTO CONSECUTIVO (nombre, ultimoValor) VALUES (?,?)', ['cotizacion', 0]);
+  return ins.insertId;
+}
 
-// Listado
+async function generateFolioIfEmpty(conn, folioInput) {
+  const folio = (folioInput ?? '').trim();
+  if (folio !== '') return folio; // usar el que escribió el usuario
+
+  // Bloqueo y aumento atómico del consecutivo
+  const [cur] = await conn.query('SELECT id_consecutivo, ultimoValor FROM CONSECUTIVO WHERE nombre=? FOR UPDATE', ['cotizacion']);
+  let idc, ultimo = 0;
+  if (cur.length) { idc = cur[0].id_consecutivo; ultimo = Number(cur[0].ultimoValor || 0); }
+  else {
+    const [ins] = await conn.query('INSERT INTO CONSECUTIVO (nombre, ultimoValor) VALUES (?,?)', ['cotizacion', 0]);
+    idc = ins.insertId; ultimo = 0;
+  }
+  const siguiente = ultimo + 1;
+  await conn.query('UPDATE CONSECUTIVO SET ultimoValor=? WHERE id_consecutivo=?', [siguiente, idc]);
+
+  // Formato del folio visible (ajústalo si quieres)
+  return `COT-${String(siguiente).padStart(4, '0')}`;
+}
+
+// ============= LISTADO =============
 app.get('/cotizaciones', estaLogueado, async (req, res) => {
   try {
-    const [cotizaciones] = await db.query(
-      `SELECT
-         c.id_cotizacion                        AS id,
-         c.noDeFolio_FKcotizacion              AS noDeFolio,              -- FK a CONSECUTIVO
-         c.fechaDeFolio_cotizacion             AS fechaDeFolio,
-         c.partidasCotizadas_cotizacion        AS partidasCotizadas,
-         c.montoMaxCotizado_cotizacion         AS montoMaxCotizado,
-         c.dependencia_cotizacion              AS dependencia,
-         c.vigenciaDeLaCotizacion              AS vigenciaDeLaCotizacion, -- en días
-         c.fechaFinDeLaCotizacion              AS fechaFinDeLaCotizacion,
-         c.responsableDeLaCotizacionFK         AS responsableDeLaCotizacion, -- FK a USUARIO
-         c.estatus_cotizacion                  AS estatusDeLaCotizacion,  -- enum('aprobada','pendiente','rechazada')
-         c.partidasAsignadas_cotizacion        AS partidasAsignadas,
-         c.montoMaxAsignado_cotizacion         AS montoMaximoAsignado
-       FROM COTIZACION c
-       ORDER BY c.id_cotizacion DESC`
-    );
+    const [rows] = await db.query(`
+      SELECT
+        c.id_cotizacion AS id,
 
-    res.render('cotizaciones', {
-      usuario: req.session.usuario,
-      cotizaciones
-    });
+        -- 👇 Este alias sí coincide con el que usas en el EJS
+        CASE
+          WHEN c.folio_cotizacion IS NOT NULL AND c.folio_cotizacion <> ''
+            THEN c.folio_cotizacion
+          ELSE CONCAT('SLM-', LPAD(c.id_cotizacion, 5, '0'))
+        END AS folioVisible,
+
+        c.noDeFolio_FKcotizacion       AS noDeFolioFK,
+        c.fechaDeFolio_cotizacion      AS fechaDeFolio,
+        c.partidasCotizadas_cotizacion AS partidasCotizadas,
+        c.montoMaxCotizado_cotizacion  AS montoMaxCotizado,
+        c.dependencia_cotizacion       AS dependencia,
+        c.vigenciaDeLaCotizacion       AS vigenciaDeLaCotizacion,
+        c.fechaFinDeLaCotizacion       AS fechaFinDeLaCotizacion,
+
+        -- 👇 Nombre completo del responsable
+        COALESCE(u.nombreCompleto, '—') AS responsableDeLaCotizacion,
+
+        c.estatus_cotizacion           AS estatusDeLaCotizacion,
+        c.partidasAsignadas_cotizacion AS partidasAsignadas,
+        c.montoMaxAsignado_cotizacion  AS montoMaximoAsignado
+      FROM COTIZACION c
+      LEFT JOIN USUARIO u
+        ON u.id_usuario = c.responsableDeLaCotizacionFK
+      ORDER BY c.id_cotizacion DESC
+    `);
+
+    res.render('cotizaciones', { usuario: req.session.usuario, cotizaciones: rows });
   } catch (err) {
     console.error('Error cargando cotizaciones:', err);
     res.status(500).send('Error en el servidor');
   }
 });
 
-// Form nueva
-app.get('/cotizaciones/nueva', estaLogueado, (req, res) => {
-  res.render('editar_cotizaciones', { cotizacion: null, usuario: req.session.usuario });
-});
 
-// Guardar nueva
-app.post('/cotizaciones/nueva', estaLogueado, async (req, res) => {
+// ============= NUEVA =============
+
+app.get('/cotizaciones/nueva', estaLogueado, async (req, res) => {
   try {
-    const {
-      noDeFolio,                    // ID de CONSECUTIVO (noDeFolio_FKcotizacion)
-      fechaDeFolio,
-      partidasCotizadas,
-      montoMaxCotizado,
-      dependencia,
-      vigenciaDeLaCotizacion,
-      fechaFinDeLaCotizacion,
-      responsableDeLaCotizacion,    // ID de USUARIO (responsableDeLaCotizacionFK)
-      estatusDeLaCotizacion,        // 'pendiente' | 'aprobada' | 'rechazada'
-      partidasAsignadas,
-      montoMaximoAsignado
-    } = req.body;
-
-    const { vigencia, fechaFin } =
-      calcularVigenciaYFechaFin(fechaDeFolio, vigenciaDeLaCotizacion, fechaFinDeLaCotizacion);
-
-    await db.query(
-      `INSERT INTO COTIZACION
-       (noDeFolio_FKcotizacion,
-        fechaDeFolio_cotizacion,
-        partidasCotizadas_cotizacion,
-        montoMaxCotizado_cotizacion,
-        dependencia_cotizacion,
-        vigenciaDeLaCotizacion,
-        fechaFinDeLaCotizacion,
-        responsableDeLaCotizacionFK,
-        estatus_cotizacion,
-        partidasAsignadas_cotizacion,
-        montoMaxAsignado_cotizacion)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        noDeFolio,                                // FK (int) a CONSECUTIVO.id_consecutivo
-        fechaDeFolio,
-        partidasCotizadas || 0,
-        montoMaxCotizado || 0,
-        dependencia || null,
-        vigencia,                                 // días o NULL
-        fechaFin,                                 // fecha o NULL
-        responsableDeLaCotizacion || null,        // FK (int) a USUARIO.id_usuario
-        estatusDeLaCotizacion || 'pendiente',     // enum válido
-        partidasAsignadas || 0,
-        montoMaximoAsignado || 0
-      ]
+    // Obtener lista de usuarios para el <select>
+    const [usuarios] = await db.query(
+      'SELECT id_usuario, nombreCompleto AS nombre_usuario FROM USUARIO ORDER BY nombreCompleto ASC'
     );
 
-    res.redirect('/cotizaciones');
+
+    res.render('editar_cotizaciones', {
+      cotizacion: null,
+      usuario: req.session.usuario,
+      usuarios, // 👈 Enviamos al EJS
+    });
   } catch (err) {
-    console.error('Error guardando cotización:', err);
-    res.status(500).send('Error al guardar la cotización');
+    console.error('Error cargando usuarios:', err);
+    res.status(500).send('Error al cargar formulario de cotización');
   }
 });
 
-// Form editar
+app.post('/cotizaciones/nueva', estaLogueado, async (req, res) => {
+  let conn;
+  try {
+    const {
+      folioVisible, fechaDeFolio, partidasCotizadas, montoMaxCotizado, dependencia,
+      vigenciaDeLaCotizacion, fechaFinDeLaCotizacion, estatusDeLaCotizacion,
+      partidasAsignadas, montoMaximoAsignado, responsableDeLaCotizacion
+    } = req.body;
+
+    if (!fechaDeFolio) throw new Error('Fecha de Folio requerida.');
+
+    const { vigencia, fechaFin } = calcularVigenciaYFechaFin(
+      fechaDeFolio,
+      vigenciaDeLaCotizacion,
+      fechaFinDeLaCotizacion
+    );
+
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    const idConsecutivo = await getConsecutivoCotizacionId(conn);
+    const folioParaGuardar = await generateFolioIfEmpty(conn, folioVisible);
+
+    await conn.query(
+      `INSERT INTO COTIZACION
+       (noDeFolio_FKcotizacion, folio_cotizacion, fechaDeFolio_cotizacion,
+        partidasCotizadas_cotizacion, montoMaxCotizado_cotizacion, dependencia_cotizacion,
+        vigenciaDeLaCotizacion, fechaFinDeLaCotizacion, responsableDeLaCotizacionFK,
+        estatus_cotizacion, partidasAsignadas_cotizacion, montoMaxAsignado_cotizacion)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        idConsecutivo, folioParaGuardar, fechaDeFolio,
+        Number(partidasCotizadas || 0), Number(montoMaxCotizado || 0),
+        (dependencia ?? '').trim() || null, vigencia, fechaFin,
+        Number(responsableDeLaCotizacion) || null, // 👈 FK de usuario
+        (estatusDeLaCotizacion || 'pendiente'),
+        Number(partidasAsignadas || 0), Number(montoMaximoAsignado || 0),
+      ]
+    );
+
+    await conn.commit();
+    res.redirect('/cotizaciones');
+  } catch (err) {
+    if (conn) await conn.rollback();
+    console.error('Error guardando cotización:', err.code || '', err.sqlMessage || err.message);
+    res.status(500).send('Error al guardar la cotización');
+  } finally {
+    if (conn) conn.release();
+  }
+});
+// ============= EDITAR =============
 app.get('/cotizaciones/editar/:id', estaLogueado, async (req, res) => {
   try {
     const { id } = req.params;
+
     const [rows] = await db.query(
       `SELECT
-         c.id_cotizacion                        AS id,
-         c.noDeFolio_FKcotizacion              AS noDeFolio,
-         c.fechaDeFolio_cotizacion             AS fechaDeFolio,
-         c.partidasCotizadas_cotizacion        AS partidasCotizadas,
-         c.montoMaxCotizado_cotizacion         AS montoMaxCotizado,
-         c.dependencia_cotizacion              AS dependencia,
-         c.vigenciaDeLaCotizacion              AS vigenciaDeLaCotizacion,
-         c.fechaFinDeLaCotizacion              AS fechaFinDeLaCotizacion,
-         c.responsableDeLaCotizacionFK         AS responsableDeLaCotizacion,
-         c.estatus_cotizacion                  AS estatusDeLaCotizacion,
-         c.partidasAsignadas_cotizacion        AS partidasAsignadas,
-         c.montoMaxAsignado_cotizacion         AS montoMaximoAsignado
+         c.id_cotizacion                AS id,
+         c.noDeFolio_FKcotizacion       AS noDeFolioFK,
+         c.folio_cotizacion             AS folioVisible,
+         c.fechaDeFolio_cotizacion      AS fechaDeFolio,
+         c.partidasCotizadas_cotizacion AS partidasCotizadas,
+         c.montoMaxCotizado_cotizacion  AS montoMaxCotizado,
+         c.dependencia_cotizacion       AS dependencia,
+         c.vigenciaDeLaCotizacion       AS vigenciaDeLaCotizacion,
+         c.fechaFinDeLaCotizacion       AS fechaFinDeLaCotizacion,
+         c.responsableDeLaCotizacionFK  AS responsableDeLaCotizacion,
+         c.estatus_cotizacion           AS estatusDeLaCotizacion,
+         c.partidasAsignadas_cotizacion AS partidasAsignadas,
+         c.montoMaxAsignado_cotizacion  AS montoMaximoAsignado
        FROM COTIZACION c
        WHERE c.id_cotizacion = ?`,
       [id]
     );
 
-    if (rows.length === 0) return res.status(404).send('Cotización no encontrada');
-    res.render('editar_cotizaciones', { cotizacion: rows[0], usuario: req.session.usuario });
+    if (!rows.length) return res.status(404).send('Cotización no encontrada');
+    const c = rows[0];
+
+    // Fechas para inputs type="date"
+    const formatYMD = d => {
+      if (!d) return '';
+      const dt = new Date(d);
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const dd = String(dt.getDate()).padStart(2, '0');
+      return `${y}-${m}-${dd}`;
+    };
+    c.fechaDeFolioYmd = formatYMD(c.fechaDeFolio);
+    c.fechaFinDeLaCotizacionYmd = formatYMD(c.fechaFinDeLaCotizacion);
+
+    // Cargar usuarios para el <select>
+    const [usuarios] = await db.query(
+      'SELECT id_usuario, nombreCompleto AS nombre_usuario FROM USUARIO ORDER BY nombreCompleto ASC'
+    );
+
+    res.render('editar_cotizaciones', {
+      cotizacion: c,
+      usuarios,
+      usuario: req.session.usuario
+    });
   } catch (err) {
     console.error('Error cargando cotización:', err);
     res.status(500).send('Error en el servidor');
   }
 });
 
-// Actualizar
 app.post('/cotizaciones/editar/:id', estaLogueado, async (req, res) => {
+  let conn;
   try {
     const { id } = req.params;
+
+    // Helpers para normalizar
+    const toNumOrNull = v =>
+      (v === undefined || v === null || String(v).trim() === '')
+        ? null
+        : Number(v);
+
+    const trimOrNull = v => {
+      const s = (v ?? '').trim();
+      return s === '' ? null : s;
+    };
+
     const {
-      noDeFolio,
+      folioVisible,
       fechaDeFolio,
       partidasCotizadas,
       montoMaxCotizado,
       dependencia,
       vigenciaDeLaCotizacion,
       fechaFinDeLaCotizacion,
-      responsableDeLaCotizacion,
       estatusDeLaCotizacion,
       partidasAsignadas,
-      montoMaximoAsignado
+      montoMaximoAsignado,
+      responsableDeLaCotizacion
     } = req.body;
 
-    const { vigencia, fechaFin } =
-      calcularVigenciaYFechaFin(fechaDeFolio, vigenciaDeLaCotizacion, fechaFinDeLaCotizacion);
+    // Calcular vigencia/fecha fin según lo que venga del form
+    const { vigencia, fechaFin } = calcularVigenciaYFechaFin(
+      fechaDeFolio,
+      vigenciaDeLaCotizacion,
+      fechaFinDeLaCotizacion
+    );
 
-    await db.query(
+    // Preparar valores
+    const folioParaGuardar       = trimOrNull(folioVisible);                 // null si vacío
+    const fechaDeFolioSQL        = fechaDeFolio || null;
+    const partidasCotizadasSQL   = toNumOrNull(partidasCotizadas);
+    const partidasAsignadasSQL   = toNumOrNull(partidasAsignadas);
+    const montoMaxCotizadoSQL    = toNumOrNull(montoMaxCotizado);
+    const montoMaximoAsignadoSQL = toNumOrNull(montoMaximoAsignado);
+    const dependenciaSQL         = trimOrNull(dependencia);
+    const responsableFKSQL       = toNumOrNull(responsableDeLaCotizacion);
+    const estatusSQL             = estatusDeLaCotizacion || 'pendiente';
+
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    // ⚠️ Importante: en edición NO cambiamos el noDeFolio_FKcotizacion
+    await conn.query(
       `UPDATE COTIZACION SET
-         noDeFolio_FKcotizacion           = ?,
-         fechaDeFolio_cotizacion          = ?,
-         partidasCotizadas_cotizacion     = ?,
-         montoMaxCotizado_cotizacion      = ?,
-         dependencia_cotizacion           = ?,
-         vigenciaDeLaCotizacion           = ?,
-         fechaFinDeLaCotizacion           = ?,
-         responsableDeLaCotizacionFK      = ?,
-         estatus_cotizacion               = ?,
-         partidasAsignadas_cotizacion     = ?,
-         montoMaxAsignado_cotizacion      = ?
+        folio_cotizacion             = ?,
+        fechaDeFolio_cotizacion      = ?,
+        partidasCotizadas_cotizacion = ?,
+        montoMaxCotizado_cotizacion  = ?,
+        dependencia_cotizacion       = ?,
+        vigenciaDeLaCotizacion       = ?,
+        fechaFinDeLaCotizacion       = ?,
+        responsableDeLaCotizacionFK  = ?,
+        estatus_cotizacion           = ?,
+        partidasAsignadas_cotizacion = ?,
+        montoMaxAsignado_cotizacion  = ?
        WHERE id_cotizacion = ?`,
       [
-        noDeFolio,
-        fechaDeFolio,
-        partidasCotizadas || 0,
-        montoMaxCotizado || 0,
-        dependencia || null,
-        vigencia,
-        fechaFin,
-        responsableDeLaCotizacion || null,
-        estatusDeLaCotizacion || 'pendiente',
-        partidasAsignadas || 0,
-        montoMaximoAsignado || 0,
+        folioParaGuardar,
+        fechaDeFolioSQL,
+        partidasCotizadasSQL,
+        montoMaxCotizadoSQL,
+        dependenciaSQL,
+        vigencia,                     // puede ser null
+        fechaFin,                     // puede ser null (YYYY-MM-DD)
+        responsableFKSQL,             // puede ser null
+        estatusSQL,
+        partidasAsignadasSQL,
+        montoMaximoAsignadoSQL,
         id
       ]
     );
 
+    await conn.commit();
     res.redirect('/cotizaciones');
   } catch (err) {
-    console.error('Error actualizando cotización:', err);
+    if (conn) await conn.rollback();
+    console.error('Error actualizando cotización:', err.code || '', err.sqlMessage || err.message);
     res.status(500).send('Error al actualizar la cotización');
+  } finally {
+    if (conn) conn.release();
   }
 });
 
-// Eliminar
+
+// ELIMINAR (si lo usas en el listado)
 app.get('/cotizaciones/eliminar/:id', estaLogueado, async (req, res) => {
   try {
-    const { id } = req.params;
-    await db.query('DELETE FROM COTIZACION WHERE id_cotizacion = ?', [id]);
-    res.redirect('/cotizaciones');
+    await db.query('DELETE FROM COTIZACION WHERE id_cotizacion = ?', [req.params.id]);
   } catch (err) {
     console.error('Error eliminando cotización:', err);
-    res.status(500).send('Error al eliminar la cotización');
+  } finally {
+    res.redirect('/cotizaciones');
   }
 });
 
+// ===== Alias opcionales en singular (evita "Cannot GET/POST /cotizacion/*") =====
+app.get('/cotizacion/nueva', (req, res) => res.redirect(302, '/cotizaciones/nueva'));
+app.post('/cotizacion/nueva', (req, res) => res.redirect(307, '/cotizaciones/nueva'));
+app.get('/cotizacion/editar/:id', (req, res) => res.redirect(302, `/cotizaciones/editar/${req.params.id}`));
+app.post('/cotizacion/editar/:id', (req, res) => res.redirect(307, `/cotizaciones/editar/${req.params.id}`));
 
 // ======================== PUERTO PARA CONECTARSE CON NODE ========================
 const PORT = 3005;

@@ -154,63 +154,123 @@ app.post('/usuarios/eliminar/:id', estaLogueado, esAdmin, async (req, res) => {
   }
 });
 
-/* ===== Reporte PDF de inventario ===== */
+/* ===== Reporte PDF de inventario usando hoja base en TODAS las páginas ===== */
 app.get('/reporte', estaLogueado, async (req, res) => {
   try {
-    const [rows] = await db.query(
-      `SELECT Producto, Lote, Stock, Caducidad, Dias_Restantes_a_Caducar, Estado FROM inventario`
-    );
+    // 1) Consulta con los nombres de la BD nueva
+    const [rows] = await db.query(`
+      SELECT
+        ca.nombreProdu_catalogo        AS Producto,
+        i.lote_inventario              AS Lote,
+        i.stock_inventario             AS Stock,
+        i.caducidad_inventario         AS Caducidad,
+        i.diasRestantes_inventario     AS Dias_Restantes,
+        i.estadoDelProducto_inventario AS Estado
+      FROM inventario i
+      LEFT JOIN catalogo ca
+        ON ca.id_catalogo = i.producto_FKinventario
+      ORDER BY ca.nombreProdu_catalogo ASC, i.caducidad_inventario ASC
+    `);
 
+    // 2) Carga de la hoja base (plantilla)
     const plantillaPath = path.join(__dirname, 'public', 'hojaBase.pdf');
     if (!fs.existsSync(plantillaPath)) {
+      console.error('No se encontró la plantilla en:', plantillaPath);
       return res.status(404).send("Plantilla PDF no encontrada");
     }
-
     const plantillaBytes = fs.readFileSync(plantillaPath);
-    const pdfDoc = await PDFDocument.load(plantillaBytes);
-    const page = pdfDoc.getPages()[0];
-    const { height } = page.getSize();
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-    const columnas = ["Producto", "Lote", "Stock", "Caducidad", "Días Restantes", "Estado"];
-    const startX = 50;
-    let startY = height - 180;
-    const colWidths = [120, 60, 50, 80, 80, 80];
-    const rowHeight = 25;
+    // Importante: crea un PDF nuevo y copia SIEMPRE la página 0 de la plantilla
+    const outPdf = await PDFDocument.create();
+    const basePdf = await PDFDocument.load(plantillaBytes);
+    const font = await outPdf.embedFont(StandardFonts.Helvetica);
 
-    const inventario = [
-      columnas,
-      ...rows.map(r => [
-        r.Producto,
-        r.Lote?.toString() ?? "",
-        r.Stock?.toString() ?? "",
-        r.Caducidad ? r.Caducidad.toISOString().split('T')[0] : "",
-        r.Dias_Restantes_a_Caducar?.toString() ?? "",
-        r.Estado ?? ""
-      ])
-    ];
+    // Helper para agregar una página con la plantilla como fondo
+    const addTemplatePage = async () => {
+      const [tpl] = await outPdf.copyPages(basePdf, [0]);
+      return outPdf.addPage(tpl);
+    };
 
-    for (let i = 0; i < inventario.length; i++) {
+    // Crea la primera página con plantilla
+    let page = await addTemplatePage();
+    let { width, height } = page.getSize();
+
+    // Config de la tabla
+    const columnas   = ["Producto", "Lote", "Stock", "Caducidad", "Días Restantes", "Estado"];
+    const colWidths  = [140, 70, 50, 90, 90, 90];
+    const rowHeight  = 25;
+    const startX     = 50;
+    const topMargin  = 180;  // espacio para encabezado de tu hoja base
+    const bottomMargin = 50;
+
+    let startY = height - topMargin;
+
+    const fmtFecha = (v) => {
+      if (!v) return "";
+      if (v instanceof Date) return v.toISOString().split('T')[0];
+      const s = String(v);
+      return s.length >= 10 ? s.slice(0, 10) : s;
+    };
+    const toStr = (v) => (v === null || v === undefined ? "" : String(v));
+
+    const drawRow = (arr, isHeader = false) => {
       let x = startX;
-      for (let j = 0; j < inventario[i].length; j++) {
-        if (i === 0) {
-          page.drawRectangle({ x, y: startY - rowHeight, width: colWidths[j], height: rowHeight, color: rgb(0, 0.2, 0.6) });
+      for (let j = 0; j < arr.length; j++) {
+        if (isHeader) {
+          page.drawRectangle({
+            x, y: startY - rowHeight, width: colWidths[j], height: rowHeight,
+            color: rgb(0, 0.2, 0.6)
+          });
         } else {
-          page.drawRectangle({ x, y: startY - rowHeight, width: colWidths[j], height: rowHeight, borderColor: rgb(0, 0, 0), borderWidth: 1 });
+          page.drawRectangle({
+            x, y: startY - rowHeight, width: colWidths[j], height: rowHeight,
+            borderColor: rgb(0, 0, 0), borderWidth: 1
+          });
         }
-        page.drawText(inventario[i][j], {
+
+        const text = toStr(arr[j]);
+        const maxChars = Math.max(1, Math.floor((colWidths[j] - 6) / 5.5)); // recorte aproximado
+        const shown = text.length > maxChars ? text.slice(0, maxChars - 1) + '…' : text;
+
+        page.drawText(shown, {
           x: x + 3,
           y: startY - rowHeight + 7,
           size: 10,
           font,
-          color: i === 0 ? rgb(1, 1, 1) : rgb(0, 0, 0),
+          color: isHeader ? rgb(1, 1, 1) : rgb(0, 0, 0),
         });
+
         x += colWidths[j];
       }
       startY -= rowHeight;
+    };
+
+    const newPageWithHeader = async () => {
+      page = await addTemplatePage();       // <- plantilla en cada página nueva
+      ({ width, height } = page.getSize());
+      startY = height - 60;                 // margen superior en páginas siguientes
+      drawRow(columnas, true);              // reimprime cabecera de tabla
+    };
+
+    // Pintar cabecera y filas
+    drawRow(columnas, true);
+
+    for (const r of rows) {
+      if (startY - rowHeight < bottomMargin) {
+        await newPageWithHeader();
+      }
+      const fila = [
+        r.Producto || "",
+        toStr(r.Lote),
+        toStr(r.Stock),
+        fmtFecha(r.Caducidad),
+        toStr(r.Dias_Restantes),
+        r.Estado || ""
+      ];
+      drawRow(fila, false);
     }
 
-    const pdfBytes = await pdfDoc.save();
+    const pdfBytes = await outPdf.save();
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename=Inventario.pdf');
     res.send(Buffer.from(pdfBytes));
@@ -219,6 +279,7 @@ app.get('/reporte', estaLogueado, async (req, res) => {
     res.status(500).send("Error al generar el reporte PDF");
   }
 });
+
 
 /* ===== Catálogo ===== */
 app.get('/catalogo', estaLogueado, async (req, res) => {
@@ -296,9 +357,9 @@ app.get('/entradas', estaLogueado, async (req, res) => {
              c.nombreProdu_catalogo AS ProductoNombre,
              i.lote_inventario      AS LoteInventario,
              i.estadoDelProducto_inventario AS EstadoInv
-      FROM ENTRADA e
-      LEFT JOIN INVENTARIO i ON e.producto_FKdeInv = i.id_inventario
-      LEFT JOIN CATALOGO c   ON i.producto_FKinventario = c.id_catalogo
+      FROM entrada e
+      LEFT JOIN inventario i ON e.producto_FKdeInv = i.id_inventario
+      LEFT JOIN catalogo c   ON i.producto_FKinventario = c.id_catalogo
       ORDER BY e.fechaDeEntrada DESC
     `);
     res.render('entradas', { entrada, usuario: req.session.usuario });
@@ -415,7 +476,7 @@ app.get('/entradas/editar/:id', estaLogueado, async (req, res) => {
         e.cantidad             AS Cantidad,
         e.costoTotal_entrada   AS CostoTotal,
         i.producto_FKinventario AS ProductoId
-      FROM ENTRADA e
+      FROM entrada e
       LEFT JOIN inventario i ON i.id_inventario = e.producto_FKdeInv
       WHERE e.id_entrada = ?
     `, [entradaId]);
@@ -424,7 +485,7 @@ app.get('/entradas/editar/:id', estaLogueado, async (req, res) => {
 
     const [productos] = await db.query(`
       SELECT id_catalogo, clave_catalogo, nombreProdu_catalogo
-      FROM CATALOGO
+      FROM catalogo
       ORDER BY nombreProdu_catalogo ASC
     `);
 
@@ -593,10 +654,10 @@ app.get('/salidas', estaLogueado, async (req, res) => {
         s.precioDeVenta_salida      AS Precio_Venta,
         s.totalFacturado_salida     AS Total_Facturado,
         s.folioDeFacturacion_salida AS Folio_de_Facturacion
-      FROM SALIDA s
-      LEFT JOIN CLIENTE    cl ON cl.id_cliente   = s.id_cliente
-      LEFT JOIN INVENTARIO i  ON i.id_inventario = s.id_inventario
-      LEFT JOIN CATALOGO   ca ON ca.id_catalogo  = i.producto_FKinventario
+      FROM salida s
+      LEFT JOIN cliente    cl ON cl.id_cliente   = s.id_cliente
+      LEFT JOIN inventario i  ON i.id_inventario = s.id_inventario
+      LEFT JOIN catalogo   ca ON ca.id_catalogo  = i.producto_FKinventario
       ORDER BY s.fecha_salida DESC
     `);
 
@@ -625,10 +686,10 @@ app.get('/salidas/buscar', estaLogueado, async (req, res) => {
         s.precioDeVenta_salida      AS Precio_Venta,
         s.totalFacturado_salida     AS Total_Facturado,
         s.folioDeFacturacion_salida AS Folio_de_Facturacion
-      FROM SALIDA s
-      LEFT JOIN CLIENTE    cl ON cl.id_cliente   = s.id_cliente
-      LEFT JOIN INVENTARIO i  ON i.id_inventario = s.id_inventario
-      LEFT JOIN CATALOGO   ca ON ca.id_catalogo  = i.producto_FKinventario
+      FROM salida s
+      LEFT JOIN cliente    cl ON cl.id_cliente   = s.id_cliente
+      LEFT JOIN inventario i  ON i.id_inventario = s.id_inventario
+      LEFT JOIN catalogo   ca ON ca.id_catalogo  = i.producto_FKinventario
       WHERE s.ordenDeCompra_salida = ?
       ORDER BY s.fecha_salida DESC
     `, [orden]);
@@ -723,7 +784,7 @@ app.post('/salidas/nueva', estaLogueado, async (req, res) => {
     let ordenOC = (orden_de_compra && `${orden_de_compra}`.trim() !== '') ? `${orden_de_compra}`.trim() : null;
     if (!ordenOC) {
       const [[row]] = await conn.query(`SELECT * FROM consecutivo WHERE nombre = 'orden_de_compra' FOR UPDATE`);
-      if (!row) await conn.query(`INSERT INTO CONSECUTIVO (nombre, ultimoValor) VALUES ('orden_de_compra', 0)`);
+      if (!row) await conn.query(`INSERT INTO consecutivo (nombre, ultimoValor) VALUES ('orden_de_compra', 0)`);
       const [[row2]] = await conn.query(`SELECT * FROM consecutivo WHERE nombre = 'orden_de_compra' FOR UPDATE`);
       const siguiente = Number(row2.ultimoValor) + 1;
       await conn.query(`UPDATE consecutivo SET ultimoValor = ? WHERE id_consecutivo = ?`, [siguiente, row2.id_consecutivo]);
@@ -830,7 +891,7 @@ app.post('/salidas/editar/:id', estaLogueado, async (req, res) => {
 
     const [[original]] = await conn.query(`
       SELECT s.id_salida, s.cantidad AS cant_original, s.id_inventario AS inv_original, s.ordenDeCompra_salida
-      FROM SALIDA s
+      FROM salida s
       WHERE s.id_salida = ?
       FOR UPDATE
     `, [salidaId]);
@@ -842,7 +903,7 @@ app.post('/salidas/editar/:id', estaLogueado, async (req, res) => {
 
     const cantOriginal = Number(original.cant_original || 0);
 
-    const [[cat]] = await conn.query(`SELECT id_catalogo FROM CATALOGO WHERE clave_catalogo = ?`, [Producto]);
+    const [[cat]] = await conn.query(`SELECT id_catalogo FROM catalogo WHERE clave_catalogo = ?`, [Producto]);
     if (!cat) {
       await conn.rollback();
       return res.send(`<h2 style="color:red;">Error: Código de producto inválido</h2><a href="/salidas"><button class="btn">Volver</button></a>`);
@@ -850,7 +911,7 @@ app.post('/salidas/editar/:id', estaLogueado, async (req, res) => {
 
     const [[invDestino]] = await conn.query(`
       SELECT id_inventario, stock_inventario, caducidad_inventario
-      FROM INVENTARIO
+      FROM inventario
       WHERE producto_FKinventario = ? AND lote_inventario = ?
       FOR UPDATE
     `, [cat.id_catalogo, Lote]);
@@ -871,10 +932,10 @@ app.post('/salidas/editar/:id', estaLogueado, async (req, res) => {
       }
 
       const stockNuevo = stockActual - delta;
-      await conn.query(`UPDATE INVENTARIO SET stock_inventario = ? WHERE id_inventario = ?`, [stockNuevo, invDestino.id_inventario]);
+      await conn.query(`UPDATE inventario SET stock_inventario = ? WHERE id_inventario = ?`, [stockNuevo, invDestino.id_inventario]);
 
       await conn.query(`
-        UPDATE SALIDA
+        UPDATE salida
            SET fecha_salida = ?, id_cliente = ?, id_inventario = ?, lote = ?, cantidad = ?,
                precioDeVenta_salida = ?, totalFacturado_salida = ?, ordenDeCompra_salida = ?, folioDeFacturacion_salida = ?
          WHERE id_salida = ?
@@ -914,7 +975,7 @@ app.post('/salidas/editar/:id', estaLogueado, async (req, res) => {
 
       if (original.inv_original) {
         const [[revViejo]] = await conn.query(
-          `SELECT stock_inventario FROM invenatario WHERE id_inventario = ?`,
+          `SELECT stock_inventario FROM inventario WHERE id_inventario = ?`,
           [original.inv_original]
         );
         if (revViejo && Number(revViejo.stock_inventario) === 0) {
@@ -1163,15 +1224,15 @@ async function getConsecutivoCotizacionId(conn) {
 async function generateFolioIfEmpty(conn, folioInput) {
   const folio = (folioInput ?? '').trim();
   if (folio !== '') return folio;
-  const [cur] = await conn.query('SELECT id_consecutivo, ultimoValor FROM CONSECUTIVO WHERE nombre=? FOR UPDATE', ['cotizacion']);
+  const [cur] = await conn.query('SELECT id_consecutivo, ultimoValor FROM consecutivo WHERE nombre=? FOR UPDATE', ['cotizacion']);
   let idc, ultimo = 0;
   if (cur.length) { idc = cur[0].id_consecutivo; ultimo = Number(cur[0].ultimoValor || 0); }
   else {
-    const [ins] = await conn.query('INSERT INTO CONSECUTIVO (nombre, ultimoValor) VALUES (?,?)', ['cotizacion', 0]);
+    const [ins] = await conn.query('INSERT INTO consecutivo (nombre, ultimoValor) VALUES (?,?)', ['cotizacion', 0]);
     idc = ins.insertId; ultimo = 0;
   }
   const siguiente = ultimo + 1;
-  await conn.query('UPDATE CONSECUTIVO SET ultimoValor=? WHERE id_consecutivo=?', [siguiente, idc]);
+  await conn.query('UPDATE consecutivo SET ultimoValor=? WHERE id_consecutivo=?', [siguiente, idc]);
   return `COT-${String(siguiente).padStart(4, '0')}`;
 }
 
@@ -1201,12 +1262,69 @@ app.get('/cotizaciones', estaLogueado, async (req, res) => {
       ORDER BY c.id_cotizacion DESC
     `);
 
-    res.render('cotizaciones', { usuario: req.session.usuario, cotizaciones: rows });
+    res.render('cotizaciones', {
+      usuario: req.session.usuario,
+      cotizaciones: rows
+    });
   } catch (err) {
     console.error('Error cargando cotizaciones:', err);
     res.status(500).send('Error en el servidor');
   }
 });
+
+
+/* ========================================================= */
+/* ✅ ✅ ✅  BLOQUE COMPLETO /cotizaciones CON BUSCADOR       */
+/* ========================================================= */
+app.get('/cotizaciones/buscar', estaLogueado, async (req, res) => {
+  const folio = req.query.folio_buscar?.toString().trim();
+  if (!folio) return res.redirect('/cotizaciones');
+
+  try {
+    const isNumeric = /^\d+$/.test(folio);
+
+    const [cotizaciones] = await db.query(`
+      SELECT
+        c.id_cotizacion AS id,
+        CASE
+          WHEN c.folio_cotizacion IS NOT NULL AND c.folio_cotizacion <> ''
+            THEN c.folio_cotizacion
+          ELSE CONCAT('SLM-', LPAD(c.id_cotizacion, 5, '0'))
+        END AS folioVisible,
+        c.noDeFolio_FKcotizacion       AS noDeFolioFK,
+        c.fechaDeFolio_cotizacion      AS fechaDeFolio,
+        c.partidasCotizadas_cotizacion AS partidasCotizadas,
+        c.montoMaxCotizado_cotizacion  AS montoMaxCotizado,
+        c.dependencia_cotizacion       AS dependencia,
+        c.vigenciaDeLaCotizacion       AS vigenciaDeLaCotizacion,
+        c.fechaFinDeLaCotizacion       AS fechaFinDeLaCotizacion,
+        COALESCE(u.nombreCompleto, '—') AS responsableDeLaCotizacion,
+        c.estatus_cotizacion           AS estatusDeLaCotizacion,
+        c.partidasAsignadas_cotizacion AS partidasAsignadas,
+        c.montoMaxAsignado_cotizacion  AS montoMaximoAsignado
+      FROM cotizacion c
+      LEFT JOIN usuario u ON u.id_usuario = c.responsableDeLaCotizacionFK
+      WHERE
+        (c.folio_cotizacion IS NOT NULL AND c.folio_cotizacion <> '' AND c.folio_cotizacion = ?)
+        OR (CONCAT('SLM-', LPAD(c.id_cotizacion, 5, '0')) = ?)
+        OR (c.id_cotizacion = ?)
+      ORDER BY c.id_cotizacion DESC
+    `, [
+      folio,
+      folio,
+      isNumeric ? Number(folio) : -1 // si no es numérico, no matchea por id
+    ]);
+
+    res.render('cotizaciones', { cotizaciones, usuario: req.session.usuario });
+  } catch (err) {
+    console.error('Error buscando cotización por folio:', err);
+    res.send('Error buscando cotización por folio');
+  }
+});
+
+/* ========================================================= */
+/* ✅ FIN DEL BLOQUE MODIFICADO. LO DEMÁS SIGUE IGUAL ✅      */
+/* ========================================================= */
 
 app.get('/cotizaciones/nueva', estaLogueado, async (req, res) => {
   try {
@@ -1242,7 +1360,7 @@ app.post('/cotizaciones/nueva', estaLogueado, async (req, res) => {
     const folioParaGuardar = await generateFolioIfEmpty(conn, folioVisible);
 
     await conn.query(
-      `INSERT INTO COTIZACION
+      `INSERT INTO cotizacion
        (noDeFolio_FKcotizacion, folio_cotizacion, fechaDeFolio_cotizacion,
         partidasCotizadas_cotizacion, montoMaxCotizado_cotizacion, dependencia_cotizacion,
         vigenciaDeLaCotizacion, fechaFinDeLaCotizacion, responsableDeLaCotizacionFK,
@@ -1275,7 +1393,7 @@ app.get('/cotizaciones/editar/:id', estaLogueado, async (req, res) => {
     const [rows] = await db.query(
       `SELECT
          c.id_cotizacion                AS id,
-         c.noDeFolio_FKcotizacion       AS noDeFolioFK,
+         c.noDeFolio_FKcotizacion       As noDeFolioFK,
          c.folio_cotizacion             AS folioVisible,
          c.fechaDeFolio_cotizacion      AS fechaDeFolio,
          c.partidasCotizadas_cotizacion AS partidasCotizadas,

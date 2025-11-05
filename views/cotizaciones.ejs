@@ -29,7 +29,16 @@
   <!-- CONTENEDOR PRINCIPAL -->
   <main class="contenedor">
     <h2>Listado de Cotizaciones</h2>
-    <a href="/cotizaciones/nueva" class="btn">Agregar nueva cotización</a>
+
+    <!-- Formulario de búsqueda -->
+    <form action="/cotizaciones/buscar" method="GET" style="margin-bottom: 1rem;">
+      <label for="folio_buscar">Buscar por Folio:</label>
+      <input type="text" name="folio_buscar" id="folio_buscar" required placeholder="COT-0001, SLM-00001 o 25">
+      <button type="submit" class="btn btn-secundario">Buscar</button>
+      <a href="/cotizaciones" class="btn btn-exito">Mostrar todas</a>
+    </form>
+
+    <a href="/cotizaciones/nueva" class="btn btn-exito">Agregar nueva cotización</a>
 
     <table>
       <thead>

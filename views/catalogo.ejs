@@ -29,6 +29,16 @@
   <main class="contenedor">
     <h2>Catálogo de Medicamentos</h2>
 
+    <!-- Formulario de búsqueda -->
+    <form action="/catalogo/buscar" method="GET" style="margin-bottom: 1rem;">
+      <label for="q">Buscar por Clave, Clave SSA o Nombre:</label>
+      <input type="text" name="q" id="q" required placeholder="Ej: 010.000.1234.00, AAB12345, Paracetamol"
+        value="<%= typeof q !== 'undefined' ? q : '' %>">
+      <button type="submit" class="btn btn-secundario">Buscar</button>
+      <a href="/catalogo" class="btn btn-exito">Mostrar todas</a>
+    </form>
+
+
     <a href="/catalogo/nuevo" class="btn btn-exito">Agregar nuevo medicamento</a>
 
 
@@ -43,8 +53,8 @@
           <th>Precio Venta</th>
           <th>Costo Unitario</th>
           <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
-          <% } %>
-            <th>Acciones</th>
+            <% } %>
+              <th>Acciones</th>
         </tr>
       </thead>
       <tbody>
@@ -71,6 +81,7 @@
               <td>
                 <div style="display:flex; gap:1rem; justify-content:center;">
                   <a href="/catalogo/editar/<%= med.id_catalogo %>" class="btn btn-secundario">Editar</a>
+
                   <form action="/catalogo/eliminar/<%= med.id_catalogo %>" method="POST" style="margin:0;"
                     onsubmit="return confirm('¿Seguro que quieres eliminar este medicamento?');">
                     <button type="submit" class="btn btn-danger">Eliminar</button>
@@ -95,4 +106,5 @@
 <form action="/logout" method="get">
   <a href="/logout" class="btn-logout">Cerrar sesión</a>
 </form>
+
 </html>

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -10,10 +11,10 @@
 <body>
   <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
   <div class="nav">
-     <a href="/catalogo">Catálogo</a>
+    <a href="/catalogo">Catálogo</a>
     <a href="/entradas">Entradas</a>
     <a href="/inventario">Inventario</a>
-    <a href="/salidas" >Salidas</a>
+    <a href="/salidas">Salidas</a>
     <a href="/clientes">Clientes</a>
     <a href="/cotizaciones">Cotizaciones</a>
 
@@ -29,67 +30,77 @@
     <h2>Lista de Usuarios</h2>
 
     <!-- Botón para añadir un nuevo usuario -->
-    <% if (usuario && usuario.tipo_usuario === 'administrador') { %>
+    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
       <div style="margin-bottom: 1rem;">
         <a href="/usuarios/nuevo" class="btn btn-exito">Nuevo Usuario</a>
       </div>
-    <% } %>
+      <% } %>
 
-    <!-- Tabla de usuarios -->
-    <table border="1" cellpadding="10" cellspacing="0"
-      style="width:100%; background: white; border-radius: 10px; border-collapse: collapse;">
-      <thead>
-        <tr style="background-color:#f5f5f5;">
-          <th>ID</th>
-          <th>Usuario</th>
-          <th>Nombre completo</th>
-          <th>Tipo</th>
-          <th>Teléfono</th>
-          <th>Correo</th>
-          <th>Fecha de registro</th>
-          <th>Acciones</th>
-        </tr>
-      </thead>
-
-      <tbody>
-        <% if (usuarios && usuarios.length > 0) { %>
-          <% usuarios.forEach(u => { %>
-            <tr>
-              <td><%= u.id_usuario %></td>
-              <td><%= u.userName %></td>
-              <td><%= u.nombreCompleto %></td>
-              <td><%= u.tipo_usuario %></td>
-              <td><%= u.telefono_usuario %></td>
-              <td><%= u.correo_usuario %></td>
-              <td>
-                <%= u.fechaRegistro_usuario
-                      ? new Date(u.fechaRegistro_usuario).toLocaleDateString('es-MX')
-                      : '' %>
-              </td>
-              <td>
-                <% if (usuario && usuario.tipo_usuario === 'administrador') { %>
-                  <a href="/usuarios/editar/<%= u.id_usuario %>" class="btn btn-secundario">Editar</a>
-                  <form action="/usuarios/eliminar/<%= u.id_usuario %>" method="POST"
-                        style="display:inline;"
-                        onsubmit="return confirm('¿Seguro que deseas eliminar este usuario?');">
-                    <button type="submit" class="btn btn-danger">Eliminar</button>
-                  </form>
-                <% } else { %>
-                  <span style="color: gray;">Sin permisos</span>
-                <% } %>
-              </td>
+        <!-- Tabla de usuarios -->
+        <table border="1" cellpadding="10" cellspacing="0"
+          style="width:100%; background: white; border-radius: 10px; border-collapse: collapse;">
+          <thead>
+            <tr style="background-color:#f5f5f5;">
+              <th>ID</th>
+              <th>Usuario</th>
+              <th>Nombre completo</th>
+              <th>Tipo</th>
+              <th>Teléfono</th>
+              <th>Correo</th>
+              <th>Fecha de registro</th>
+              <th>Acciones</th>
             </tr>
-          <% }) %>
-        <% } else { %>
-          <tr>
-            <td colspan="8" style="text-align: center;">No hay usuarios registrados</td>
-          </tr>
-        <% } %>
-      </tbody>
-    </table>
+          </thead>
+
+          <tbody>
+            <% if (usuarios && usuarios.length> 0) { %>
+              <% usuarios.forEach(u=> { %>
+                <tr>
+                  <td>
+                    <%= u.id_usuario %>
+                  </td>
+                  <td>
+                    <%= u.userName %>
+                  </td>
+                  <td>
+                    <%= u.nombreCompleto %>
+                  </td>
+                  <td>
+                    <%= u.tipo_usuario %>
+                  </td>
+                  <td>
+                    <%= u.telefono_usuario %>
+                  </td>
+                  <td>
+                    <%= u.correo_usuario %>
+                  </td>
+                  <td>
+                    <%= u.fechaRegistro_usuario ? new Date(u.fechaRegistro_usuario).toLocaleDateString('es-MX') : '' %>
+                  </td>
+                  <td>
+                    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
+                      <a href="/usuarios/editar/<%= u.id_usuario %>" class="btn btn-secundario">Editar</a>
+                      <form action="/usuarios/eliminar/<%= u.id_usuario %>" method="POST" style="display:inline;"
+                        onsubmit="return confirm('¿Seguro que deseas eliminar este usuario? Esta acción no se puede deshacer.');">
+                        <button type="submit" class="btn btn-danger">Eliminar</button>
+                      </form>
+                      <% } else { %>
+                        <span style="color: gray;">Sin permisos</span>
+                        <% } %>
+                  </td>
+                </tr>
+                <% }) %>
+                  <% } else { %>
+                    <tr>
+                      <td colspan="8" style="text-align: center;">No hay usuarios registrados</td>
+                    </tr>
+                    <% } %>
+          </tbody>
+        </table>
   </main>
 </body>
 <form action="/logout" method="get">
-    <a href="/logout" class="btn-logout">Cerrar sesión</a>
-  </form>
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
+</form>
+
 </html>

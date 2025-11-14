@@ -27,6 +27,25 @@
 
   <main class="contenedor">
     <h2>Entradas de Producto</h2>
+    
+<!-- Formulario de búsqueda -->
+<form action="/entradas/buscar" method="GET" style="margin-bottom: 1rem;">
+  <label for="q">Buscar por Proveedor, Lote, Nombre, Clave o Clave SSA:</label>
+
+  <input
+    type="text"
+    name="q"
+    id="q"
+    required
+    placeholder="Ej: IMSS, Lote123, Paracetamol, 010.000.2154.01, 35915"
+    value="<%= typeof q !== 'undefined' ? q : '' %>"
+  >
+
+  <button type="submit" class="btn btn-secundario">Buscar</button>
+  <a href="/entradas" class="btn btn-exito">Mostrar todas</a>
+</form>
+
+
     <a href="/entradas/nueva"><button class="btn btn-exito"> Nueva Entrada</button></a>
 
     <table>

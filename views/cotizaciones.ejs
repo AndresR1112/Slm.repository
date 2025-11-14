@@ -33,7 +33,7 @@
     <!-- Formulario de búsqueda -->
     <form action="/cotizaciones/buscar" method="GET" style="margin-bottom: 1rem;">
       <label for="folio_buscar">Buscar por Folio:</label>
-      <input type="text" name="folio_buscar" id="folio_buscar" required placeholder="COT-0001, SLM-00001 o 25">
+      <input type="text" name="folio_buscar" id="folio_buscar" required placeholder="SLM-001 o 25">
       <button type="submit" class="btn btn-secundario">Buscar</button>
       <a href="/cotizaciones" class="btn btn-exito">Mostrar todas</a>
     </form>
@@ -98,7 +98,7 @@
               <div style="display:flex; gap:1rem; justify-content:center;">
                 <a href="/cotizaciones/editar/<%= i.id %>" class="btn btn-secundario">Editar</a>
                 <form action="/cotizaciones/eliminar/<%= i.id %>" method="GET" style="margin:0;"
-                  onsubmit="return confirm('¿Seguro que quieres eliminar esta cotización?');">
+                  onsubmit="return confirm('¿Seguro que deseas eliminar esta cotización? Esta acción no se puede deshacer.');">
                   <button type="submit" class="btn btn-danger">Eliminar</button>
                 </form>
               </div>

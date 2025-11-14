@@ -12,7 +12,7 @@
 
 <body>
 
-<main class="contenedor" style="max-width:800px;">
+  <main class="contenedor" style="max-width:800px;">
     <h2>
       <%= editar ? 'Editar Usuario' : 'Agregar Nuevo Usuario' %>
     </h2>
@@ -42,13 +42,38 @@
             Tipo de usuario:
             <select name="tipo_usuario" class="input" required>
               <option value="">Selecciona un tipo</option>
+
               <option value="administrador" <%=usuarioData && usuarioData.tipo_usuario==='administrador' ? 'selected'
-                : '' %>>Administrador</option>
-              <option value="empleado" <%=usuarioData && usuarioData.tipo_usuario==='empleado' ? 'selected' : '' %>
-                >Empleado</option>
+                : '' %>>
+                Administrador
+              </option>
+
+              <option value="empleado" <%=usuarioData && usuarioData.tipo_usuario==='empleado' ? 'selected' : '' %>>
+                Empleado
+              </option>
+
+              <!-- 🔽 NUEVOS TIPOS AGREGADOS (sin cambiar nada más) -->
+
+              <option value="desempleado" <%=usuarioData && usuarioData.tipo_usuario==='desempleado' ? 'selected' : ''
+                %>>
+                Desempleado
+              </option>
+
+              <option value="cliente" <%=usuarioData && usuarioData.tipo_usuario==='cliente' ? 'selected' : '' %>>
+                Cliente
+              </option>
+
+              <option value="almacen" <%=usuarioData && usuarioData.tipo_usuario==='almacen' ? 'selected' : '' %>>
+                Almacén
+              </option>
+
+              <option value="facturacion" <%=usuarioData && usuarioData.tipo_usuario==='facturacion' ? 'selected' : ''
+                %>>
+                Facturación
+              </option>
+
             </select>
           </label>
-
           <label>
             Teléfono:
             <input type="text" name="telefono_usuario" class="input" maxlength="10" required placeholder="Teléfono"

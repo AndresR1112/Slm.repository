@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Salidas</title>
   <link rel="stylesheet" href="/estilos.css" />
 </head>
+
 <body>
   <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
 
@@ -17,9 +19,9 @@
     <a href="/clientes">Clientes</a>
     <a href="/cotizaciones">Cotizaciones</a>
 
-    <% if (usuario && usuario.tipo_usuario === 'administrador') { %>
+    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
       <a href="/usuarios">Usuarios</a>
-    <% } %>
+      <% } %>
   </div>
 
   <main class="contenedor">
@@ -51,42 +53,55 @@
         </tr>
       </thead>
       <tbody>
-        <% if (!salidas || salidas.length === 0) { %>
+        <% if (!salidas || salidas.length===0) { %>
           <tr>
             <td colspan="10" style="text-align:center; opacity:.7;">Sin resultados</td>
           </tr>
-        <% } else { %>
-          <% salidas.forEach(s => { %>
-            <tr>
-              <td><%= s.orden_de_compra || '' %></td>
+          <% } else { %>
+            <% salidas.forEach(s=> { %>
+              <tr>
+                <td>
+                  <%= s.orden_de_compra || '' %>
+                </td>
 
-              <td>
-                <%= s.Fecha ? new Date(s.Fecha).toLocaleDateString('es-MX') : '-' %>
-              </td>
+                <td>
+                  <%= s.Fecha ? new Date(s.Fecha).toLocaleDateString('es-MX') : '-' %>
+                </td>
 
-              <td><%= s.ClienteNombre || '-' %></td>
+                <td>
+                  <%= s.ClienteNombre || '-' %>
+                </td>
 
-              <!-- Nombre (Clave) -->
-              <td>
-                <%= s.ProductoNombre ? s.ProductoNombre : '-' %>
-                <%= s.Codigo ? ' (' + s.Codigo + ')' : '' %>
-              </td>
+                <!-- Nombre (Clave) -->
+                <!-- (Clave) Nombre -->
+                <td>
+                  <%= s.ProductoNombre || '-' %>
+                </td>
 
-              <td><%= s.Lote || '-' %></td>
-              <td><%= s.Cantidad ?? 0 %></td>
 
-              <!-- Blindaje contra null/undefined -->
-              <td>$<%= Number(s.Precio_Venta ?? 0).toFixed(2) %></td>
-              <td>$<%= Number(s.Total_Facturado ?? 0).toFixed(2) %></td>
+                <td>
+                  <%= s.Lote || '-' %>
+                </td>
+                <td>
+                  <%= s.Cantidad ?? 0 %>
+                </td>
 
-              <td><%= s.Folio_de_Facturacion || '-' %></td>
+                <!-- Blindaje contra null/undefined -->
+                <td>$<%= Number(s.Precio_Venta ?? 0).toFixed(2) %>
+                </td>
+                <td>$<%= Number(s.Total_Facturado ?? 0).toFixed(2) %>
+                </td>
 
-              <td>
-                <a href="/salidas/editar/<%= s.Id %>" class="btn btn-secundario">Editar</a>
-              </td>
-            </tr>
-          <% }) %>
-        <% } %>
+                <td>
+                  <%= s.Folio_de_Facturacion || '-' %>
+                </td>
+
+                <td>
+                  <a href="/salidas/editar/<%= s.Id %>" class="btn btn-secundario">Editar</a>
+                </td>
+              </tr>
+              <% }) %>
+                <% } %>
       </tbody>
     </table>
   </main>
@@ -95,4 +110,5 @@
     <a href="/logout" class="btn-logout">Cerrar sesión</a>
   </form>
 </body>
+
 </html>

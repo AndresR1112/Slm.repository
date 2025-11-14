@@ -196,11 +196,11 @@ app.get('/reporte', estaLogueado, async (req, res) => {
     let { width, height } = page.getSize();
 
     // Config de la tabla
-    const columnas   = ["Producto", "Lote", "Stock", "Caducidad", "Días Restantes", "Estado"];
-    const colWidths  = [140, 70, 50, 90, 90, 90];
-    const rowHeight  = 25;
-    const startX     = 50;
-    const topMargin  = 180;  // espacio para encabezado de tu hoja base
+    const columnas = ["Producto", "Lote", "Stock", "Caducidad", "Días Restantes", "Estado"];
+    const colWidths = [140, 70, 50, 90, 90, 90];
+    const rowHeight = 25;
+    const startX = 50;
+    const topMargin = 180;  // espacio para encabezado de tu hoja base
     const bottomMargin = 50;
 
     let startY = height - topMargin;
@@ -280,15 +280,40 @@ app.get('/reporte', estaLogueado, async (req, res) => {
   }
 });
 
-
 /* ===== Catálogo ===== */
 app.get('/catalogo', estaLogueado, async (req, res) => {
   try {
-    const [results] = await db.query('SELECT * FROM catalogo');
+    const [results] = await db.query('SELECT * FROM catalogo ORDER BY nombreProdu_catalogo ASC');
     res.render('catalogo', { catalogo: results, usuario: req.session.usuario });
   } catch (err) {
     console.error(err);
     res.send('Error al cargar catálogo');
+  }
+});
+
+/* Buscar en catálogo por clave, clave SSA o nombre */
+app.get('/catalogo/buscar', estaLogueado, async (req, res) => {
+  const q = req.query.q?.toString().trim();
+  if (!q) return res.redirect('/catalogo');
+
+  try {
+    const [results] = await db.query(
+      `
+      SELECT *
+      FROM catalogo
+      WHERE clave_catalogo = ?
+         OR claveSSA_catalogo = ?
+         OR nombreProdu_catalogo LIKE CONCAT('%', ?, '%')
+      ORDER BY nombreProdu_catalogo ASC
+      `,
+      [q, q, q]
+    );
+
+    // Nota: pasamos "q" por si quieres mostrar el valor buscado en el input del EJS
+    res.render('catalogo', { catalogo: results, usuario: req.session.usuario, q });
+  } catch (err) {
+    console.error('Error buscando en catálogo:', err);
+    res.send('Error buscando en catálogo');
   }
 });
 
@@ -354,7 +379,7 @@ app.get('/entradas', estaLogueado, async (req, res) => {
   try {
     const [entrada] = await db.query(`
       SELECT e.*,
-             c.nombreProdu_catalogo AS ProductoNombre,
+             CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS ProductoNombre,
              i.lote_inventario      AS LoteInventario,
              i.estadoDelProducto_inventario AS EstadoInv
       FROM entrada e
@@ -368,6 +393,45 @@ app.get('/entradas', estaLogueado, async (req, res) => {
     res.send('Error cargando entradas');
   }
 });
+
+/* ===== Buscador de entradas ===== */
+app.get('/entradas/buscar', estaLogueado, async (req, res) => {
+  const q = (req.query.q || '').toString().trim();
+  if (!q) return res.redirect('/entradas');
+
+  try {
+    const [entrada] = await db.query(
+      `
+      SELECT 
+        e.*,
+        CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS ProductoNombre,
+        i.lote_inventario      AS LoteInventario,
+        i.estadoDelProducto_inventario AS EstadoInv
+      FROM entrada e
+      LEFT JOIN inventario i ON e.producto_FKdeInv = i.id_inventario
+      LEFT JOIN catalogo c   ON i.producto_FKinventario = c.id_catalogo
+      WHERE 
+        e.proveedor LIKE CONCAT('%', ?, '%')
+        OR e.lote LIKE CONCAT('%', ?, '%')
+        OR c.nombreProdu_catalogo LIKE CONCAT('%', ?, '%')
+        OR c.clave_catalogo LIKE CONCAT('%', ?, '%')
+        OR c.claveSSA_catalogo LIKE CONCAT('%', ?, '%')
+      ORDER BY e.fechaDeEntrada DESC
+      `,
+      [q, q, q, q, q]
+    );
+
+    res.render('entradas', {
+      entrada,
+      usuario: req.session.usuario,
+      q
+    });
+  } catch (err) {
+    console.error('Error buscando entradas:', err);
+    res.send('Error buscando entradas');
+  }
+});
+
 
 app.get('/entradas/nueva', estaLogueado, async (req, res) => {
   try {
@@ -643,22 +707,27 @@ app.get('/salidas', estaLogueado, async (req, res) => {
   try {
     const [salidas] = await db.query(`
       SELECT
-        s.id_salida                  AS Id,
-        s.ordenDeCompra_salida      AS orden_de_compra,
-        s.fecha_salida              AS Fecha,
-        cl.nombre_cliente           AS ClienteNombre,
-        ca.nombreProdu_catalogo     AS ProductoNombre,
-        ca.clave_catalogo           AS Codigo,
-        s.lote                      AS Lote,
-        s.cantidad                  AS Cantidad,
-        s.precioDeVenta_salida      AS Precio_Venta,
-        s.totalFacturado_salida     AS Total_Facturado,
-        s.folioDeFacturacion_salida AS Folio_de_Facturacion
-      FROM salida s
-      LEFT JOIN cliente    cl ON cl.id_cliente   = s.id_cliente
-      LEFT JOIN inventario i  ON i.id_inventario = s.id_inventario
-      LEFT JOIN catalogo   ca ON ca.id_catalogo  = i.producto_FKinventario
-      ORDER BY s.fecha_salida DESC
+  s.id_salida                  AS Id,
+  s.ordenDeCompra_salida      AS orden_de_compra,
+  s.fecha_salida              AS Fecha,
+  cl.nombre_cliente           AS ClienteNombre,
+
+  CONCAT('(', ca.clave_catalogo, ') ', 
+         TRIM(REPLACE(ca.nombreProdu_catalogo, CONCAT('(', ca.clave_catalogo, ')'), '')))
+    AS ProductoNombre,
+
+  ca.clave_catalogo           AS Codigo,
+  s.lote                      AS Lote,
+  s.cantidad                  AS Cantidad,
+  s.precioDeVenta_salida      AS Precio_Venta,
+  s.totalFacturado_salida     AS Total_Facturado,
+  s.folioDeFacturacion_salida AS Folio_de_Facturacion
+  FROM salida s
+  LEFT JOIN cliente    cl ON cl.id_cliente   = s.id_cliente
+  LEFT JOIN inventario i  ON i.id_inventario = s.id_inventario
+  LEFT JOIN catalogo   ca ON ca.id_catalogo  = i.producto_FKinventario
+  ORDER BY s.fecha_salida DESC
+
     `);
 
     res.render('salidas', { salidas, usuario: req.session.usuario });
@@ -667,6 +736,7 @@ app.get('/salidas', estaLogueado, async (req, res) => {
     res.send('Error cargando salidas');
   }
 });
+
 
 app.get('/salidas/buscar', estaLogueado, async (req, res) => {
   const orden = req.query.orden_buscar?.toString().trim();
@@ -1075,7 +1145,9 @@ app.get('/inventario', estaLogueado, async (req, res) => {
         i.lote_inventario,
         i.stock_inventario,
         i.caducidad_inventario,
-        c.nombreProdu_catalogo  AS ProductoNombre,
+
+        -- Aquí armamos (Clave) Nombre
+        CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS ProductoNombre,
         c.clave_catalogo        AS Codigo,
         c.presentacion_catalogo AS Presentacion,
         c.precioVenta_catalogo,
@@ -1099,6 +1171,7 @@ app.get('/inventario', estaLogueado, async (req, res) => {
     res.send('Error cargando inventario');
   }
 });
+
 
 /* ===== Clientes ===== */
 app.get('/clientes', estaLogueado, async (req, res) => {
@@ -1233,7 +1306,7 @@ async function generateFolioIfEmpty(conn, folioInput) {
   }
   const siguiente = ultimo + 1;
   await conn.query('UPDATE consecutivo SET ultimoValor=? WHERE id_consecutivo=?', [siguiente, idc]);
-  return `COT-${String(siguiente).padStart(4, '0')}`;
+  return `SLM-${String(siguiente).padStart(4, '0')}`;
 }
 
 app.get('/cotizaciones', estaLogueado, async (req, res) => {
@@ -1452,21 +1525,21 @@ app.post('/cotizaciones/editar/:id', estaLogueado, async (req, res) => {
       fechaDeFolio, vigenciaDeLaCotizacion, fechaFinDeLaCotizacion
     );
 
-    const folioParaGuardar       = trimOrNull(folioVisible);
-    const fechaDeFolioSQL        = fechaDeFolio || null;
-    const partidasCotizadasSQL   = toNumOrNull(partidasCotizadas);
-    const partidasAsignadasSQL   = toNumOrNull(partidasAsignadas);
-    const montoMaxCotizadoSQL    = toNumOrNull(montoMaxCotizado);
+    const folioParaGuardar = trimOrNull(folioVisible);
+    const fechaDeFolioSQL = fechaDeFolio || null;
+    const partidasCotizadasSQL = toNumOrNull(partidasCotizadas);
+    const partidasAsignadasSQL = toNumOrNull(partidasAsignadas);
+    const montoMaxCotizadoSQL = toNumOrNull(montoMaxCotizado);
     const montoMaximoAsignadoSQL = toNumOrNull(montoMaximoAsignado);
-    const dependenciaSQL         = trimOrNull(dependencia);
-    const responsableFKSQL       = toNumOrNull(responsableDeLaCotizacion);
-    const estatusSQL             = estatusDeLaCotizacion || 'pendiente';
+    const dependenciaSQL = trimOrNull(dependencia);
+    const responsableFKSQL = toNumOrNull(responsableDeLaCotizacion);
+    const estatusSQL = estatusDeLaCotizacion || 'pendiente';
 
     conn = await db.getConnection();
     await conn.beginTransaction();
 
     await conn.query(
-    `UPDATE cotizacion SET
+      `UPDATE cotizacion SET
       folio_cotizacion             = ?,
       fechaDeFolio_cotizacion      = ?,
       partidasCotizadas_cotizacion = ?,
@@ -1479,41 +1552,41 @@ app.post('/cotizaciones/editar/:id', estaLogueado, async (req, res) => {
       partidasAsignadas_cotizacion = ?,
       montoMaxAsignado_cotizacion  = ?
       WHERE id_cotizacion = ?`,
-    [
-      folioParaGuardar,
-      fechaDeFolioSQL,
-      partidasCotizadasSQL,
-      montoMaxCotizadoSQL,
-      dependenciaSQL,
-      vigencia,
-      fechaFin,
-      responsableFKSQL,
-      estatusSQL,
-      partidasAsignadasSQL,
-      montoMaximoAsignadoSQL,
-      id
-    ]
-  );
+      [
+        folioParaGuardar,
+        fechaDeFolioSQL,
+        partidasCotizadasSQL,
+        montoMaxCotizadoSQL,
+        dependenciaSQL,
+        vigencia,
+        fechaFin,
+        responsableFKSQL,
+        estatusSQL,
+        partidasAsignadasSQL,
+        montoMaximoAsignadoSQL,
+        id
+      ]
+    );
 
-  await conn.commit();
-  res.redirect('/cotizaciones');
-} catch (err) {
-  if (conn) await conn.rollback();
-  console.error('Error actualizando cotización:', err.code || '', err.sqlMessage || err.message);
-  res.status(500).send('Error al actualizar la cotización');
-} finally {
-  if (conn) conn.release();
-}
+    await conn.commit();
+    res.redirect('/cotizaciones');
+  } catch (err) {
+    if (conn) await conn.rollback();
+    console.error('Error actualizando cotización:', err.code || '', err.sqlMessage || err.message);
+    res.status(500).send('Error al actualizar la cotización');
+  } finally {
+    if (conn) conn.release();
+  }
 });
 
 app.get('/cotizaciones/eliminar/:id', estaLogueado, async (req, res) => {
-try {
-  await db.query('DELETE FROM cotizacion WHERE id_cotizacion = ?', [req.params.id]);
-} catch (err) {
-  console.error('Error eliminando cotización:', err);
-} finally {
-  res.redirect('/cotizaciones');
-}
+  try {
+    await db.query('DELETE FROM cotizacion WHERE id_cotizacion = ?', [req.params.id]);
+  } catch (err) {
+    console.error('Error eliminando cotización:', err);
+  } finally {
+    res.redirect('/cotizaciones');
+  }
 });
 
 /* Alias útiles */

@@ -1,86 +1,142 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Inventario</title>
   <link rel="stylesheet" href="/estilos.css" />
 </head>
+
 <body>
-    <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
+  <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
+  <%
+    // Normalizar tipo de usuario (igual que en usuarios)
+    const tipoRaw  = (usuario && usuario.tipo_usuario) ? usuario.tipo_usuario : '';
+    const tipoNorm = tipoRaw.toString().trim().toLowerCase().replace(/\s+/g, '_');
+
+    const esAdmin       = (tipoNorm === 'administrador');
+    const esEmpleado    = (tipoNorm === 'empleado');
+    const esAlmacen     = (tipoNorm === 'almacen');
+    const esRH          = (tipoNorm === 'recursos_humanos');
+    const esFact        = (tipoNorm === 'facturacion');
+    const esCliente     = (tipoNorm === 'cliente');
+    const esDesempleado = (tipoNorm === 'desempleado');
+
+    // 🔢 Helper para mostrar cantidades con separador de miles (sin decimales)
+    function formatoEnteroMX(n) {
+      if (n === null || n === undefined) return '';
+      return Number(n).toLocaleString('es-MX');
+    }
+  %>
+
+  <!-- mismo placeholder que en las demás vistas -->
+  <main style="padding: 2 rem; max-width: 2000px; margin:auto;"></main>
+
+  <!-- NAVBAR (mismo patrón que usuarios / cotizaciones) -->
   <div class="nav">
-     <a href="/catalogo">Catálogo</a>
-    <a href="/entradas">Entradas</a>
-    <a href="/inventario" class="active">Inventario</a>
-    <a href="/salidas">Salidas</a>
-    <a href="/clientes">Clientes</a>
-    <a href="/cotizaciones">Cotizaciones</a>
+    <a href="/catalogo">Catálogo</a>
 
+    <% if (esCliente) { %>
+      <!-- Cliente: solo Catálogo e Inventario -->
+      <a href="/inventario" class="active">Inventario</a>
+    <% } else if (!esDesempleado) { %>
+      <!-- Todos los demás (menos desempleado) -->
+      <a href="/entradas">Entradas</a>
+      <a href="/inventario" class="active">Inventario</a>
+      <a href="/salidas">Salidas</a>
+      <a href="/clientes">Clientes</a>
+      <a href="/cotizaciones">Cotizaciones</a>
+    <% } %>
 
-    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
-      <a href="/usuarios">Usuarios</a> <!-- Solo visible para administradores -->
-      <% } %>
+    <!-- Facturación solo Admin y Facturación -->
+    <% if (esAdmin || esFact) { %>
+      <a href="/facturacion">Facturación</a>
+    <% } %>
 
+    <!-- Usuarios solo Admin y RH -->
+    <% if (esAdmin || esRH) { %>
+      <a href="/usuarios">Usuarios</a>
+    <% } %>
   </div>
-  <main class="contenedor" style="padding: 2rem; max-width: 2000px; margin:auto;">
 
-    <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
-      <a href="/reporte" target="_blank">
-        <button class="btn btn3">📄 Compartir Inventario</button>
-      </a>
-    </div>
+  <!-- CONTENIDO PRINCIPAL -->
+  <main class="contenedor">
+    <% if (esDesempleado) { %>
+      <h2>Inventario</h2>
+      <p style="text-align:center; margin-top:2rem; opacity:.7;">
+        No tienes permisos para ver el inventario.
+      </p>
+    <% } else { %>
 
-    <h2>Inventario Actual</h2>
+      <!-- Botón compartir inventario, alineado a la derecha como en otros módulos -->
+      <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+        <a href="/reporte" target="_blank" class="btn btn3">
+          📄 Compartir Inventario
+        </a>
+      </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Producto</th>
-          <th>Lote</th>
-          <th>Stock</th>
-          <th>Caducidad</th>
-          <th>Días Restantes</th>
-          <th>Estado</th>
-        </tr>
-      </thead>
+      <h2>Inventario Actual</h2>
 
-      <tbody>
-        <% inventario.forEach(i => { %>
+      <table>
+        <thead>
           <tr>
-            <td><%= i.ProductoNombre %></td>
-            <td><%= i.lote_inventario %></td>
-            <td><%= i.stock_inventario %></td>
-
-            <!-- Fecha formateada de forma segura -->
-            <td>
-              <% if (i.caducidad_inventario) { %>
-                <%= new Date(i.caducidad_inventario).toLocaleDateString('es-MX', {
-                  day: '2-digit',
-                  month: '2-digit',
-                  year: 'numeric'
-                }) %>
-              <% } else { %>
-                -
-              <% } %>
-            </td>
-
-            <td><%= (i.diasRestantes_inventario ?? i.DiasRestantes ?? '-') %> <%= (i.diasRestantes_inventario ?? i.DiasRestantes) != null ? 'días' : '' %></td>
-
-
-            <td class="<%= 
-              i.estadoDelProducto_inventario === 'Vigente' ? 'estado-verde' :
-              i.estadoDelProducto_inventario === 'Próximo a vencer' ? 'estado-amarillo' :
-              'estado-rojo' %>">
-              <%= i.estadoDelProducto_inventario %>
-            </td>
+            <th>Producto</th>
+            <th>Lote</th>
+            <th>Stock</th>
+            <th>Caducidad</th>
+            <th>Días Restantes</th>
+            <th>Estado</th>
           </tr>
-        <% }) %>
-      </tbody>
-    </table>
+        </thead>
+
+        <tbody>
+          <% if (inventario && inventario.length > 0) { %>
+            <% inventario.forEach(i => { %>
+              <tr>
+                <td><%= i.ProductoNombre %></td>
+                <td><%= i.lote_inventario %></td>
+
+                <!-- 🔢 Stock con separador de miles -->
+                <td><%= formatoEnteroMX(i.stock_inventario) %></td>
+
+                <!-- Fecha formateada de forma segura -->
+                <td>
+                  <% if (i.caducidad_inventario) { %>
+                    <%= new Date(i.caducidad_inventario).toLocaleDateString(
+                          'es-MX',
+                          { day: '2-digit', month: '2-digit', year: 'numeric' }
+                        ) %>
+                  <% } else { %>
+                    -
+                  <% } %>
+                </td>
+
+                <td>
+                  <%= (i.diasRestantes_inventario ?? i.DiasRestantes ?? '-' ) %>
+                  <%= (i.diasRestantes_inventario ?? i.DiasRestantes) != null ? ' días' : '' %>
+                </td>
+
+                <td class="<%= 
+                  i.estadoDelProducto_inventario === 'Vigente' ? 'estado-verde' :
+                  i.estadoDelProducto_inventario === 'Próximo a vencer' ? 'estado-amarillo' :
+                  'estado-rojo' %>">
+                  <%= i.estadoDelProducto_inventario %>
+                </td>
+              </tr>
+            <% }) %>
+          <% } else { %>
+            <tr>
+              <td colspan="6" style="text-align:center;">No hay productos en inventario</td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+
+    <% } %>
   </main>
 
-  <form action="/logout" method="get">
-    <a href="/logout" class="btn-logout">Cerrar sesión</a>
-  </form>
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
 </body>
+
 </html>

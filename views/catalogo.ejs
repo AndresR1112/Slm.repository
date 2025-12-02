@@ -9,102 +9,131 @@
 </head>
 
 <body>
+  <%
+    const tipo = usuario ? usuario.tipo_usuario : null;
+
+    const esAdmin        = (tipo === 'administrador');
+    const esEmpleado     = (tipo === 'empleado');
+    const esDesempleado  = (tipo === 'desempleado');
+    const esCliente      = (tipo === 'cliente');
+    const esAlmacen      = (tipo === 'almacen');
+    const esRH           = (tipo === 'recursos_humanos');
+    const esFacturacion  = (tipo === 'facturacion');
+    const esCotizacion   = (tipo === 'cotizacion');
+
+    // 👉 Empleado y Cotización solo lectura
+    const puedeEditarCatalogo = esAdmin || esAlmacen;
+
+    // 👉 Formato dinero MX
+    function formatoMX(n){
+      if (n === null || n === undefined) return '';
+      return Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+  %>
+
   <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
+
   <!-- NAVBAR -->
   <div class="nav">
     <a href="/catalogo" class="active">Catálogo</a>
-    <a href="/entradas">Entradas</a>
-    <a href="/inventario">Inventario</a>
-    <a href="/salidas">Salidas</a>
-    <a href="/clientes">Clientes</a>
-    <a href="/cotizaciones">Cotizaciones</a>
 
-    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
-      <a href="/usuarios">Usuarios</a> <!-- Solo visible para administradores -->
-      <% } %>
+    <% if (!esCliente && !esDesempleado) { %>
+      <a href="/entradas">Entradas</a>
+    <% } %>
 
+    <% if (!esDesempleado) { %>
+      <a href="/inventario">Inventario</a>
+    <% } %>
+
+    <% if (!esCliente && !esDesempleado) { %>
+      <a href="/salidas">Salidas</a>
+      <a href="/clientes">Clientes</a>
+      <a href="/cotizaciones">Cotizaciones</a>
+    <% } %>
+
+    <% if (esAdmin || esFacturacion) { %>
+      <a href="/facturacion">Facturación</a>
+    <% } %>
+
+    <% if (esAdmin || esRH) { %>
+      <a href="/usuarios">Usuarios</a>
+    <% } %>
   </div>
 
   <!-- CONTENEDOR PRINCIPAL -->
   <main class="contenedor">
     <h2>Catálogo de Medicamentos</h2>
 
-    <!-- Formulario de búsqueda -->
     <form action="/catalogo/buscar" method="GET" style="margin-bottom: 1rem;">
       <label for="q">Buscar por Clave, Clave SSA o Nombre:</label>
-      <input type="text" name="q" id="q" required placeholder="Ej: 010.000.1234.00, AAB12345, Paracetamol"
+      <input
+        type="text"
+        name="q"
+        id="q"
+        required
+        placeholder="Ej: 010.000.1234.00, AAB12345, Paracetamol"
         value="<%= typeof q !== 'undefined' ? q : '' %>">
       <button type="submit" class="btn btn-secundario">Buscar</button>
       <a href="/catalogo" class="btn btn-exito">Mostrar todas</a>
     </form>
 
-
-    <a href="/catalogo/nuevo" class="btn btn-exito">Agregar nuevo medicamento</a>
-
+    <% if (puedeEditarCatalogo) { %>
+      <a href="/catalogo/nuevo" class="btn btn-exito">Agregar nuevo medicamento</a>
+    <% } %>
 
     <table border="1" cellpadding="10" cellspacing="0"
-      style="width:100%; background:white; border-radius:10px; border-collapse:collapse;">
+           style="width:100%; background:white; border-radius:10px; border-collapse:collapse;">
       <thead>
-        <tr style="background-color:#f5f5f5;">
+        <tr style="background-color:#f5f5f5%;">
           <th>Clave</th>
           <th>Nombre</th>
           <th>Presentación</th>
           <th>Clave SSA</th>
           <th>Precio Venta</th>
           <th>Costo Unitario</th>
-          <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
-            <% } %>
-              <th>Acciones</th>
+          <th>Acciones</th>
         </tr>
       </thead>
       <tbody>
-        <% if (catalogo && catalogo.length> 0) { %>
-          <% catalogo.forEach(med=> { %>
+        <% if (catalogo && catalogo.length > 0) { %>
+          <% catalogo.forEach(function(med){ %>
             <tr>
-              <td>
-                <%= med.clave_catalogo %>
-              </td>
-              <td>
-                <%= med.nombreProdu_catalogo %>
-              </td>
-              <td>
-                <%= med.presentacion_catalogo %>
-              </td>
-              <td>
-                <%= med.claveSSA_catalogo %>
-              </td>
-              <td>$<%= med.precioVenta_catalogo.toFixed(2) %>
-              </td>
-              <td>$<%= med.costoUnitario_catalogo.toFixed(2) %>
-              </td>
+              <td><%= med.clave_catalogo %></td>
+              <td><%= med.nombreProdu_catalogo %></td>
+              <td><%= med.presentacion_catalogo %></td>
+              <td><%= med.claveSSA_catalogo %></td>
+
+              <!-- 🔥 FORMATO MX -->
+              <td>$<%= formatoMX(med.precioVenta_catalogo) %></td>
+              <td>$<%= formatoMX(med.costoUnitario_catalogo) %></td>
 
               <td>
-                <div style="display:flex; gap:1rem; justify-content:center;">
-                  <a href="/catalogo/editar/<%= med.id_catalogo %>" class="btn btn-secundario">Editar</a>
+                <% if (puedeEditarCatalogo) { %>
+                  <div style="display:flex; gap:1rem; justify-content:center;">
+                    <a href="/catalogo/editar/<%= med.id_catalogo %>" class="btn btn-secundario">Editar</a>
 
-                  <form action="/catalogo/eliminar/<%= med.id_catalogo %>" method="POST" style="margin:0;"
-                    onsubmit="return confirm('¿Seguro que quieres eliminar este medicamento?');">
-                    <button type="submit" class="btn btn-danger">Eliminar</button>
-                  </form>
-                </div>
-              </td>
-
-            </tr>
-            <% }) %>
-              <% } else { %>
-                <tr>
-                  <td colspan="<%= usuario && usuario.tipo_usuario === 'administrador' ? 7 : 6 %>"
-                    style="text-align:center;">
-                    No hay medicamentos registrados
-                  </td>
-                </tr>
+                    <form action="/catalogo/eliminar/<%= med.id_catalogo %>" method="POST" style="margin:0;"
+                      onsubmit="return confirm('¿Seguro que quieres eliminar este medicamento?');">
+                      <button type="submit" class="btn btn-danger">Eliminar</button>
+                    </form>
+                  </div>
+                <% } else { %>
+                  <span style="color: gray;">Sin permisos</span>
                 <% } %>
+              </td>
+            </tr>
+          <% }); %>
+        <% } else { %>
+          <tr>
+            <td colspan="7" style="text-align:center;">
+              No hay medicamentos registrados
+            </td>
+          </tr>
+        <% } %>
       </tbody>
     </table>
   </main>
-</body>
-<form action="/logout" method="get">
-  <a href="/logout" class="btn-logout">Cerrar sesión</a>
-</form>
 
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
+</body>
 </html>

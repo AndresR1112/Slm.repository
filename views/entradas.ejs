@@ -9,44 +9,83 @@
 </head>
 
 <body>
+
+  <!-- ======== FORMATEO DE DINERO ======== -->
+  <%
+    function formatoMX(num) {
+      const n = Number(num);
+      if (isNaN(n)) return num;
+      return n.toLocaleString('es-MX', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    const tipo          = usuario ? usuario.tipo_usuario : null;
+    const esAdmin       = (tipo === 'administrador');
+    const esEmpleado    = (tipo === 'empleado');
+    const esAlmacen     = (tipo === 'almacen');
+    const esRH          = (tipo === 'recursos_humanos');
+    const esFact        = (tipo === 'facturacion');
+    const esCliente     = (tipo === 'cliente');
+    const esDesempleado = (tipo === 'desempleado');
+    const esCotizacion  = (tipo === 'cotizacion');
+
+    // 👇 Solo Admin / Almacén pueden editar / manejar archivos en ENTRADAS
+    const puedeEditarEntradas   = esAdmin || esAlmacen;
+    const puedeArchivosEntrada  = esAdmin || esAlmacen;
+    const puedeAccionesEntradas = puedeEditarEntradas || puedeArchivosEntrada;
+  %>
+
   <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
+
+  <!-- NAVBAR -->
   <div class="nav">
     <a href="/catalogo">Catálogo</a>
-    <a href="/entradas" class="active">Entradas</a>
-    <a href="/inventario">Inventario</a>
-    <a href="/salidas">Salidas</a>
-    <a href="/clientes">Clientes</a>
-    <a href="/cotizaciones">Cotizaciones</a>
 
+    <% if (!esCliente && !esDesempleado) { %>
+      <a href="/entradas" class="active">Entradas</a>
+      <a href="/inventario">Inventario</a>
+      <a href="/salidas">Salidas</a>
+      <a href="/clientes">Clientes</a>
+      <a href="/cotizaciones">Cotizaciones</a>
+    <% } else if (esCliente) { %>
+      <a href="/inventario">Inventario</a>
+    <% } %>
 
-    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
-      <a href="/usuarios">Usuarios</a> <!-- Solo visible para administradores -->
-      <% } %>
+    <% if (esAdmin || esFact) { %>
+      <a href="/facturacion">Facturación</a>
+    <% } %>
 
+    <% if (esAdmin || esRH) { %>
+      <a href="/usuarios">Usuarios</a>
+    <% } %>
   </div>
 
   <main class="contenedor">
     <h2>Entradas de Producto</h2>
-    
-<!-- Formulario de búsqueda -->
-<form action="/entradas/buscar" method="GET" style="margin-bottom: 1rem;">
-  <label for="q">Buscar por Proveedor, Lote, Nombre, Clave o Clave SSA:</label>
 
-  <input
-    type="text"
-    name="q"
-    id="q"
-    required
-    placeholder="Ej: IMSS, Lote123, Paracetamol, 010.000.2154.01, 35915"
-    value="<%= typeof q !== 'undefined' ? q : '' %>"
-  >
+    <!-- Buscador -->
+    <form action="/entradas/buscar" method="GET" style="margin-bottom: 1rem%;">
+      <label for="q">Buscar por Proveedor, Lote, Nombre, Clave o Clave SSA:</label>
 
-  <button type="submit" class="btn btn-secundario">Buscar</button>
-  <a href="/entradas" class="btn btn-exito">Mostrar todas</a>
-</form>
+      <input
+        type="text"
+        name="q"
+        id="q"
+        required
+        placeholder="Ej: IMSS, Lote123, Paracetamol, 010.000.2154.01, 35915"
+        value="<%= typeof q !== 'undefined' ? q : '' %>">
 
+      <button type="submit" class="btn btn-secundario">Buscar</button>
+      <a href="/entradas" class="btn btn-exito">Mostrar todas</a>
+    </form>
 
-    <a href="/entradas/nueva"><button class="btn btn-exito"> Nueva Entrada</button></a>
+    <% if (puedeEditarEntradas) { %>
+      <a href="/entradas/nueva">
+        <button class="btn btn-exito">Nueva Entrada</button>
+      </a>
+    <% } %>
 
     <table>
       <thead>
@@ -61,41 +100,151 @@
           <th>Acciones</th>
         </tr>
       </thead>
+
       <tbody>
-        <% entrada.forEach(ent=> { %>
+        <% if (!entrada || entrada.length === 0) { %>
           <tr>
-            <td>
-              <%= new Date(ent.fechaDeEntrada).toLocaleDateString('es-MX') %>
-            </td>
-            <td>
-              <%= ent.proveedor %>
-            </td>
-            <td>
-              <%= ent.ProductoNombre %>
-            </td>
-            <td>
-              <%= ent.lote %>
-            </td>
-            <td>
-              <%= new Date(ent.caducidad).toLocaleDateString('es-MX') %>
-            </td>
-            <td>
-              <%= ent.cantidad %>
-            </td>
-            <td>$<%= ent.costoTotal_entrada.toFixed(2) %>
-            </td>
-
-            
-            <td><a href="/entradas/editar/<%= ent.id_entrada %>" class="btn btn-secundario">Editar</a></td>
-
+            <td colspan="8" style="text-align:center; opacity:.7;">Sin resultados</td>
           </tr>
-          <% }) %>
+        <% } else { %>
+          <% entrada.forEach(ent => { %>
+            <tr>
+              <td><%= new Date(ent.fechaDeEntrada).toLocaleDateString('es-MX') %></td>
+              <td><%= ent.proveedor %></td>
+              <td><%= ent.ProductoNombre %></td>
+              <td><%= ent.lote %></td>
+              <td><%= new Date(ent.caducidad).toLocaleDateString('es-MX') %></td>
+              <td><%= formatoMX(ent.cantidad) %></td>
+              <td>$<%= formatoMX(ent.costoTotal_entrada) %></td>
+
+              <!-- ACCIONES -->
+              <td class="col-acciones">
+                <% if (puedeAccionesEntradas) { %>
+                  <%
+                    const adj = (typeof adjuntosPorEntrada !== 'undefined' && adjuntosPorEntrada[ent.id_entrada])
+                      ? adjuntosPorEntrada[ent.id_entrada]
+                      : [];
+
+                    const headerTexto = [
+                      new Date(ent.fechaDeEntrada).toLocaleDateString('es-MX'),
+                      ent.proveedor,
+                      ent.ProductoNombre,
+                      'Lote ' + ent.lote
+                    ].join(', ');
+                  %>
+
+                  <% if (puedeEditarEntradas) { %>
+                    <a href="/entradas/editar/<%= ent.id_entrada %>" class="btn btn-secundario">Editar</a>
+                  <% } %>
+
+                  <% if (puedeArchivosEntrada) { %>
+                    <button
+                      type="button"
+                      class="btn btn3 btn-archivos"
+                      data-id="<%= ent.id_entrada %>"
+                      data-header="<%= headerTexto %>"
+                      onclick="abrirAdjuntos(<%= ent.id_entrada %>)">
+                      Archivos<%= adj.length > 0 ? ' (' + adj.length + ')' : '' %>
+                    </button>
+
+                    <div id="archivos-template-<%= ent.id_entrada %>" class="archivos-template" style="display:none;">
+
+                      <% if (adj.length === 0) { %>
+                        <p class="archivos-vacio">No hay archivos adjuntos.</p>
+                      <% } else { %>
+                        <ul class="archivos-lista">
+                          <% adj.forEach(a => { %>
+                            <li class="archivos-item">
+                              <a href="/adjuntos/descargar/<%= a.id_archivo %>" class="archivo-nombre"
+                                 title="<%= a.nombre_original %>">
+                                <%= a.nombre_original %>
+                              </a>
+
+                              <form
+                                action="/adjuntos/eliminar/<%= a.id_archivo %>"
+                                method="POST"
+                                class="form-borrar-adjunto"
+                                onsubmit="return confirm('¿Eliminar este archivo?');">
+                                <button type="submit" class="btn-borrar-adjunto">Eliminar</button>
+                              </form>
+                            </li>
+                          <% }) %>
+                        </ul>
+                      <% } %>
+
+                      <form
+                        action="/adjuntos/subir/entradas/<%= ent.id_entrada %>"
+                        method="POST"
+                        enctype="multipart/form-data"
+                        class="form-adjuntos-menu">
+                        <label>Agregar archivos (PDF):</label>
+                        <input type="file" name="archivos" multiple accept="application/pdf">
+                        <button type="submit" class="btn btn-sm">Subir</button>
+                      </form>
+
+                    </div>
+                  <% } %>
+                <% } else { %>
+                  <!-- Igual que en Catálogo: solo texto, misma celda -->
+                  <span style="color: gray; font-size: 0.85rem;">Sin permisos</span>
+                <% } %>
+              </td>
+            </tr>
+          <% }); %>
+        <% } %>
       </tbody>
     </table>
   </main>
-</body>
-<form action="/logout" method="get">
-  <a href="/logout" class="btn-logout">Cerrar sesión</a>
-</form>
 
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
+
+  <!-- PANEL ADJUNTOS -->
+  <div id="adjuntosOverlay" class="adj-overlay">
+    <div class="adj-panel">
+      <div class="adj-header">
+        <h3 id="adj-header-text">Archivos</h3>
+        <button type="button" class="adj-close" onclick="cerrarAdjuntos()">✖</button>
+      </div>
+      <div id="adj-body" class="adj-body"></div>
+    </div>
+  </div>
+
+  <script>
+    function abrirAdjuntos(id) {
+      const tpl = document.getElementById('archivos-template-' + id);
+      if (!tpl) return;
+
+      const overlay = document.getElementById('adjuntosOverlay');
+      const headerEl = document.getElementById('adj-header-text');
+      const bodyEl = document.getElementById('adj-body');
+
+      const btn = document.querySelector('.btn-archivos[data-id="' + id + '"]');
+      if (btn && btn.dataset.header) {
+        headerEl.textContent = btn.dataset.header;
+      } else {
+        headerEl.textContent = 'Archivos';
+      }
+
+      bodyEl.innerHTML = tpl.innerHTML;
+      overlay.classList.add('activo');
+    }
+
+    function cerrarAdjuntos() {
+      const overlay = document.getElementById('adjuntosOverlay');
+      if (overlay) overlay.classList.remove('activo');
+    }
+
+    document.addEventListener('click', function (e) {
+      const overlay = document.getElementById('adjuntosOverlay');
+      if (!overlay || !overlay.classList.contains('activo')) return;
+
+      const dentroPanel   = e.target.closest('.adj-panel');
+      const pulsandoBoton = e.target.closest('.btn-archivos');
+      if (!dentroPanel && !pulsandoBoton) {
+        cerrarAdjuntos();
+      }
+    });
+  </script>
+
+</body>
 </html>

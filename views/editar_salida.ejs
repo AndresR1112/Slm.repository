@@ -42,6 +42,13 @@
 
       <!-- Producto -->
       <label for="Producto">Producto:</label>
+
+      <!-- Botones de ordenamiento de productos -->
+      <div class="orden-productos">
+        <button type="button" id="ordenClaveProd" class="btn btn3">Clave ↑/↓</button>
+        <button type="button" id="ordenNombreProd" class="btn btn3">Nombre A–Z</button>
+      </div>
+
       <select
         name="Producto"
         id="Producto"
@@ -50,7 +57,12 @@
       >
         <option value="">-- Selecciona un producto --</option>
         <% (productos || []).forEach(function(producto){ %>
-          <option value="<%= producto.Codigo %>" <%= (salida.Producto === producto.Codigo) ? 'selected' : '' %>>
+          <option
+            value="<%= producto.Codigo %>"
+            data-clave="<%= producto.Codigo %>"
+            data-nombre="<%= producto.Nombre %>"
+            <%= (salida.Producto === producto.Codigo) ? 'selected' : '' %>
+          >
             <%= producto.Nombre %> (<%= producto.Codigo %>)
           </option>
         <% }) %>
@@ -119,6 +131,53 @@
     </form>
   </main>
 
+  <!-- Ordenamiento dinámico de productos -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const selectProd = document.getElementById('Producto');
+      const btnClave   = document.getElementById('ordenClaveProd');
+      const btnNombre = document.getElementById('ordenNombreProd');
+
+      if (!selectProd || !btnClave || !btnNombre) return;
+
+      // Guardamos la lista original de options
+      const opcionesOriginales = Array.from(selectProd.querySelectorAll('option'));
+      let ascClave = true; // alterna asc/desc
+
+      // Ordenar por CLAVE (Codigo) ↑/↓
+      btnClave.addEventListener('click', function () {
+        const opciones = opcionesOriginales.slice(1); // sin la opción vacía
+        opciones.sort((a, b) => {
+          const ca = (a.dataset.clave || '').toString();
+          const cb = (b.dataset.clave || '').toString();
+          return ascClave
+            ? ca.localeCompare(cb, 'es', { numeric: true })
+            : cb.localeCompare(ca, 'es', { numeric: true });
+        });
+        ascClave = !ascClave;
+        actualizarSelect(opciones);
+      });
+
+      // Ordenar por NOMBRE A–Z
+      btnNombre.addEventListener('click', function () {
+        const opciones = opcionesOriginales.slice(1);
+        opciones.sort((a, b) =>
+          (a.dataset.nombre || '').localeCompare(b.dataset.nombre || '', 'es')
+        );
+        actualizarSelect(opciones);
+      });
+
+      // Reconstruye el select sin perder el producto seleccionado
+      function actualizarSelect(listaOpciones) {
+        const valorActual = selectProd.value;
+        selectProd.innerHTML = '';
+        selectProd.appendChild(opcionesOriginales[0]); // "-- Selecciona un producto --"
+        listaOpciones.forEach(opt => selectProd.appendChild(opt));
+        selectProd.value = valorActual;
+      }
+    });
+  </script>
+
   <!-- Exponer datos al JS (sin lógica) -->
   <script>
     // Datos de la salida actual para que el JS calcule max correctamente:
@@ -142,21 +201,24 @@
     document.addEventListener('DOMContentLoaded', function(){
       var loteSel = document.getElementById('Lote');
       var prodSel = document.getElementById('Producto');
-      var ayuda = document.getElementById('ayuda-stock');
+      var ayuda   = document.getElementById('ayuda-stock');
 
       function mostrarStock() {
         var codigo = prodSel.value;
-        var lote = (loteSel.selectedOptions[0] || {}).value || '';
+        var lote   = (loteSel.selectedOptions[0] || {}).value || '';
         if (!codigo || !lote) { ayuda.textContent = ''; return; }
+
         var item = (window.LOTES || []).find(function(l){
           return String(l.Producto) === String(codigo) && String(l.Lote) === String(lote);
         });
         if (!item) { ayuda.textContent = ''; return; }
 
-        var base = Number(item.Stock || 0);
+        var base      = Number(item.Stock || 0);
         var mismoProd = String(codigo) === String(window.SALIDA.Producto || '');
-        var mismoLote = String(lote) === String(window.SALIDA.Lote || '');
-        var max = (mismoProd && mismoLote) ? (base + Number(window.SALIDA.CantidadOriginal || 0)) : base;
+        var mismoLote = String(lote)   === String(window.SALIDA.Lote || '');
+        var max       = (mismoProd && mismoLote)
+                        ? (base + Number(window.SALIDA.CantidadOriginal || 0))
+                        : base;
 
         ayuda.textContent = 'Stock disponible para esta operación: ' + max + ' unidades';
       }

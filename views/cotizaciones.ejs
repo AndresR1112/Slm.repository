@@ -11,107 +11,456 @@
 <body>
   <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
 
+  <%
+    const tipo = usuario ? usuario.tipo_usuario : null;
+
+    const esAdmin       = (tipo === 'administrador');
+    const esEmpleado    = (tipo === 'empleado');
+    const esAlmacen     = (tipo === 'almacen');
+    const esRH          = (tipo === 'recursos_humanos');
+    const esFact        = (tipo === 'facturacion');
+    const esCliente     = (tipo === 'cliente');
+    const esDesempleado = (tipo === 'desempleado');
+    const esCotizacion  = (tipo === 'cotizacion');
+
+    // ✅ SOLO Admin + Cotizacion pueden AGREGAR / EDITAR / ELIMINAR cotizaciones
+    const puedeGestionarCot = (esAdmin || esCotizacion) && !esRH;
+
+    // ✅ SOLO Admin + Cotizacion pueden manejar archivos
+    const puedeArchivosCot  = (esAdmin || esCotizacion) && !esRH;
+
+    // Hay alguna acción disponible en la celda
+    const puedeAccionesCot  = puedeGestionarCot || puedeArchivosCot;
+
+    // Quién puede ver el módulo de cotizaciones:
+    const puedeVerModulo = !esCliente && !esDesempleado;
+
+    // 🔢 Helpers de formato numérico
+    function formatoMX(num) {
+      return Number(num || 0).toLocaleString('es-MX', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    function formatoEnteroMX(num) {
+      return Number(num || 0).toLocaleString('es-MX');
+    }
+
+    // Nombres de meses para mostrar "Mes 1 (Enero)"
+    const nombresMes = [
+      '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+
+    // Listas que vienen del backend (si no llegan, quedan vacías)
+    const listaAniosCotSafe = (typeof listaAniosCot !== 'undefined' && Array.isArray(listaAniosCot))
+      ? listaAniosCot
+      : [];
+
+    const dependenciasListaSafe = (typeof dependenciasLista !== 'undefined' && Array.isArray(dependenciasLista))
+      ? dependenciasLista
+      : [];
+
+    const listaMesesCotSafe = (typeof listaMesesCot !== 'undefined' && Array.isArray(listaMesesCot))
+      ? listaMesesCot
+      : [];
+
+    const responsablesListaSafe = (typeof responsablesLista !== 'undefined' && Array.isArray(responsablesLista))
+      ? responsablesLista
+      : [];
+  %>
+
   <!-- NAVBAR -->
   <div class="nav">
     <a href="/catalogo">Catálogo</a>
-    <a href="/entradas">Entradas</a>
-    <a href="/inventario">Inventario</a>
-    <a href="/salidas">Salidas</a>
-    <a href="/clientes">Clientes</a>
-    <a href="/cotizaciones" class="active">Cotizaciones</a>
 
-    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
-      <a href="/usuarios">Usuarios</a> <!-- Solo visible para administradores -->
-      <% } %>
+    <% if (puedeVerModulo) { %>
+      <a href="/entradas">Entradas</a>
+      <a href="/inventario">Inventario</a>
+      <a href="/salidas">Salidas</a>
+      <a href="/clientes">Clientes</a>
+      <a href="/cotizaciones" class="active">Cotizaciones</a>
+    <% } else if (esCliente) { %>
+      <!-- Cliente: solo Catálogo e Inventario -->
+      <a href="/inventario">Inventario</a>
+    <% } %>
 
+    <!-- Facturación solo Admin y Facturación -->
+    <% if (esAdmin || esFact) { %>
+      <a href="/facturacion">Facturación</a>
+    <% } %>
+
+    <!-- Usuarios solo Admin y RH -->
+    <% if (esAdmin || esRH) { %>
+      <a href="/usuarios">Usuarios</a>
+    <% } %>
   </div>
 
   <!-- CONTENEDOR PRINCIPAL -->
   <main class="contenedor">
     <h2>Listado de Cotizaciones</h2>
 
-    <!-- Formulario de búsqueda -->
-    <form action="/cotizaciones/buscar" method="GET" style="margin-bottom: 1rem;">
-      <label for="folio_buscar">Buscar por Folio:</label>
-      <input type="text" name="folio_buscar" id="folio_buscar" required placeholder="SLM-001 o 25">
-      <button type="submit" class="btn btn-secundario">Buscar</button>
-      <a href="/cotizaciones" class="btn btn-exito">Mostrar todas</a>
-    </form>
+    <% if (!puedeVerModulo) { %>
+      <p style="text-align:center; margin-top:2rem; opacity:.7;">
+        No tienes permisos para ver el módulo de cotizaciones.
+      </p>
+    <% } else { %>
 
-    <a href="/cotizaciones/nueva" class="btn btn-exito">Agregar nueva cotización</a>
+      <!-- ==== BUSCADOR PRINCIPAL + BOTÓN FILTROS ==== -->
+      <form method="GET" action="/cotizaciones" class="form-inline facturacion-busqueda" style="margin-bottom: 1rem;">
+        <div class="campo-busqueda">
+          <label for="q">Buscar por folio o texto</label>
+          <input
+            type="text"
+            id="q"
+            name="q"
+            placeholder="SLM-001, dependencia, responsable..."
+            value="<%= (typeof q !== 'undefined') ? q : '' %>">
+        </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Folio</th>
-          <th>Fecha de Folio</th>
-          <th>Partidas Cotizadas</th>
-          <th>Monto Máx. Cotizado</th>
-          <th>Dependencia</th>
-          <th>Vigencia</th>
-          <th>Fecha Fin</th>
-          <th>Responsable</th>
-          <th>Estatus</th>
-          <th>Partidas Asignadas</th>
-          <th>Monto Máx. Asignado</th>
-          <th>Acciones</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% cotizaciones.forEach(i=> { %>
+        <div class="botones">
+          <button type="submit" class="btn btn-secundario">Buscar</button>
+          <button type="button" id="toggleFiltros" class="btn btn3">Filtros</button>
+          <a href="/cotizaciones" class="btn btn-exito">Mostrar todas</a>
+        </div>
+      </form>
+
+      <!-- Botón Agregar: solo Admin + Cotizacion -->
+      <% if (puedeGestionarCot) { %>
+        <a href="/cotizaciones/nueva" class="btn btn-exito">Agregar nueva cotización</a>
+      <% } %>
+
+      <table>
+        <thead>
           <tr>
-            <!-- 👇 Si hay folio alfanumérico lo muestra, si no, el consecutivo -->
-            <td>
-              <%= i.folioVisible || i.noDeFolioFK || '—' %>
-            </td>
-
-            <td>
-              <%= i.fechaDeFolio ? new Date(i.fechaDeFolio).toLocaleDateString('es-MX') : '' %>
-            </td>
-            <td>
-              <%= i.partidasCotizadas %>
-            </td>
-            <td>$<%= Number(i.montoMaxCotizado || 0).toFixed(2) %>
-            </td>
-            <td>
-              <%= i.dependencia || '' %>
-            </td>
-            <td>
-              <%= (i.vigenciaDeLaCotizacion ?? '' ) !=='' ? (i.vigenciaDeLaCotizacion + ' días' ) : 'Sin vigencia' %>
-            </td>
-            <td>
-              <%= i.fechaFinDeLaCotizacion ? new Date(i.fechaFinDeLaCotizacion).toLocaleDateString('es-MX')
-                : 'Sin vigencia' %>
-            </td>
-            <td>
-              <%= i.responsableDeLaCotizacion || '' %>
-            </td>
-            <td>
-              <%= i.estatusDeLaCotizacion %>
-            </td>
-            <td>
-              <%= i.partidasAsignadas %>
-            </td>
-            <td>$<%= Number(i.montoMaximoAsignado || 0).toFixed(2) %>
-            </td>
-            <td>
-              <div style="display:flex; gap:1rem; justify-content:center;">
-                <a href="/cotizaciones/editar/<%= i.id %>" class="btn btn-secundario">Editar</a>
-                <form action="/cotizaciones/eliminar/<%= i.id %>" method="GET" style="margin:0;"
-                  onsubmit="return confirm('¿Seguro que deseas eliminar esta cotización? Esta acción no se puede deshacer.');">
-                  <button type="submit" class="btn btn-danger">Eliminar</button>
-                </form>
-              </div>
-            </td>
+            <th>Folio</th>
+            <th>Fecha de Folio</th>
+            <th>Partidas Cotizadas</th>
+            <th>Monto Máx. Cotizado</th>
+            <th>Dependencia</th>
+            <th>Vigencia</th>
+            <th>Fecha Fin</th>
+            <th>Responsable</th>
+            <th>Estatus</th>
+            <th>Partidas Asignadas</th>
+            <th>Monto Máx. Asignado</th>
+            <th>Acciones</th>
           </tr>
-          <% }) %>
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          <% if (!cotizaciones || cotizaciones.length === 0) { %>
+            <tr>
+              <td colspan="12" style="text-align:center; opacity:.7;">No hay cotizaciones registradas</td>
+            </tr>
+          <% } else { %>
+            <% cotizaciones.forEach(i => { %>
+              <tr>
+                <!-- Folio visible -->
+                <td><%= i.folioVisible || i.noDeFolioFK || '—' %></td>
+
+                <td>
+                  <%= i.fechaDeFolio
+                        ? new Date(i.fechaDeFolio).toLocaleDateString('es-MX')
+                        : '' %>
+                </td>
+
+                <td><%= formatoEnteroMX(i.partidasCotizadas ?? 0) %></td>
+
+                <td>$<%= formatoMX(i.montoMaxCotizado) %></td>
+
+                <td><%= i.dependencia || '' %></td>
+
+                <td>
+                  <% if ((i.vigenciaDeLaCotizacion ?? '') !== '') { %>
+                    <%= formatoEnteroMX(i.vigenciaDeLaCotizacion) %> días
+                  <% } else { %>
+                    Sin vigencia
+                  <% } %>
+                </td>
+
+                <td>
+                  <%= i.fechaFinDeLaCotizacion
+                        ? new Date(i.fechaFinDeLaCotizacion).toLocaleDateString('es-MX')
+                        : 'Sin vigencia' %>
+                </td>
+
+                <td><%= i.responsableDeLaCotizacion || '' %></td>
+
+                <td><%= i.estatusDeLaCotizacion %></td>
+
+                <td><%= formatoEnteroMX(i.partidasAsignadas ?? 0) %></td>
+
+                <td>$<%= formatoMX(i.montoMaximoAsignado) %></td>
+
+                <!-- ACCIONES -->
+                <td class="col-acciones">
+                  <% if (puedeAccionesCot) { %>
+                    <%
+                      const adj = (typeof adjuntosPorCotizacion !== 'undefined' && adjuntosPorCotizacion[i.id])
+                        ? adjuntosPorCotizacion[i.id]
+                        : [];
+
+                      const headerTexto = [
+                        i.folioVisible || i.noDeFolioFK || '',
+                        i.fechaDeFolio ? new Date(i.fechaDeFolio).toLocaleDateString('es-MX') : '',
+                        i.dependencia || '',
+                        i.responsableDeLaCotizacion || '',
+                        i.estatusDeLaCotizacion || '',
+                        (i.montoMaxCotizado != null
+                          ? 'Monto máx cotizado: $' + formatoMX(i.montoMaxCotizado)
+                          : '')
+                      ].filter(Boolean).join(', ');
+                    %>
+
+                    <% if (puedeGestionarCot) { %>
+                      <a href="/cotizaciones/editar/<%= i.id %>" class="btn btn-secundario">Editar</a>
+                    <% } %>
+
+                    <% if (puedeArchivosCot) { %>
+                      <button
+                        type="button"
+                        class="btn btn3 btn-archivos"
+                        data-id="<%= i.id %>"
+                        data-header="<%= headerTexto %>"
+                        onclick="abrirAdjuntos(<%= i.id %>)">
+                        Archivos<%= adj.length > 0 ? ' (' + adj.length + ')' : '' %>
+                      </button>
+
+                      <div id="archivos-template-<%= i.id %>" class="archivos-template" style="display:none;">
+
+                        <% if (adj.length === 0) { %>
+                          <p class="archivos-vacio">No hay archivos adjuntos.</p>
+                        <% } else { %>
+                          <ul class="archivos-lista">
+                            <% adj.forEach(a => { %>
+                              <li class="archivos-item">
+                                <a
+                                  href="/adjuntos/descargar/<%= a.id_archivo %>"
+                                  class="archivo-nombre"
+                                  title="<%= a.nombre_original %>">
+                                  <%= a.nombre_original %>
+                                </a>
+
+                                <% if (puedeGestionarCot) { %>
+                                  <form
+                                    action="/adjuntos/eliminar/<%= a.id_archivo %>"
+                                    method="POST"
+                                    class="form-borrar-adjunto"
+                                    onsubmit="return confirm('¿Eliminar este archivo?');">
+                                    <button type="submit" class="btn-borrar-adjunto">Eliminar</button>
+                                  </form>
+                                <% } %>
+                              </li>
+                            <% }); %>
+                          </ul>
+                        <% } %>
+
+                        <% if (puedeGestionarCot) { %>
+                          <form
+                            action="/adjuntos/subir/cotizaciones/<%= i.id %>"
+                            method="POST"
+                            enctype="multipart/form-data"
+                            class="form-adjuntos-menu">
+                            <label>Agregar archivos (PDF):</label>
+                            <input type="file" name="archivos" multiple accept="application/pdf">
+                            <button type="submit" class="btn btn-sm">Subir</button>
+                          </form>
+                        <% } %>
+
+                      </div>
+                    <% } %>
+
+                  <% } else { %>
+                    <span style="color: gray; font-size: 0.85rem;">Sin permisos</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }); %>
+          <% } %>
+        </tbody>
+      </table>
+    <% } %>
   </main>
 
   <form action="/logout" method="get">
     <a href="/logout" class="btn-logout">Cerrar sesión</a>
   </form>
-</body>
 
+  <!-- ============= PANEL LATERAL DE FILTROS ============= -->
+  <div id="filtrosOverlay" class="filtros-overlay">
+    <div class="filtros-panel">
+      <div class="filtros-header">
+        <h3>Filtros de cotizaciones</h3>
+        <button type="button" id="cerrarFiltros" class="btn btn-secundario btn-sm">X</button>
+      </div>
+
+      <form method="GET" action="/cotizaciones" class="form-filtros">
+        <!-- Mantener texto de búsqueda si lo hubiera -->
+        <input type="hidden" name="q" value="<%= (typeof q !== 'undefined') ? q : '' %>">
+
+        <!-- MES -->
+        <div class="fila">
+          <label for="mes">Mes</label>
+          <select id="mes" name="mes">
+            <option value="">-- Todos --</option>
+            <% listaMesesCotSafe.forEach(function(m) { %>
+              <option value="<%= m %>"
+                <%= (typeof mes !== 'undefined' && mes == m) ? 'selected' : '' %>>
+                Mes <%= m %> (<%= nombresMes[m] %>)
+              </option>
+            <% }); %>
+          </select>
+        </div>
+
+        <!-- AÑO (solo años con registros) -->
+        <div class="fila">
+          <label for="anio">Año</label>
+          <select id="anio" name="anio">
+            <option value="">-- Todos --</option>
+            <% listaAniosCotSafe.forEach(function(anioOpt){ %>
+              <option value="<%= anioOpt %>"
+                <%= (typeof anio !== 'undefined' && anio == anioOpt) ? 'selected' : '' %>>
+                <%= anioOpt %>
+              </option>
+            <% }); %>
+          </select>
+        </div>
+
+        <!-- DEPENDENCIA (solo dependencias existentes) -->
+        <div class="fila">
+          <label for="dependencia">Dependencia</label>
+          <select id="dependencia" name="dependencia">
+            <option value="">-- Todas --</option>
+            <% dependenciasListaSafe.forEach(function(dep){ %>
+              <option value="<%= dep %>"
+                <%= (typeof dependencia !== 'undefined' && dependencia === dep) ? 'selected' : '' %>>
+                <%= dep %>
+              </option>
+            <% }); %>
+          </select>
+        </div>
+
+        <!-- RESPONSABLE (lista desplegable) -->
+        <div class="fila">
+          <label for="responsable">Responsable</label>
+          <select id="responsable" name="responsable">
+            <option value="">-- Todos --</option>
+            <% responsablesListaSafe.forEach(function(r) { %>
+              <option value="<%= r.id_usuario %>"
+                <%= (typeof responsable !== 'undefined' && Number(responsable) === Number(r.id_usuario)) ? 'selected' : '' %>>
+                <%= r.nombreCompleto %>
+              </option>
+            <% }); %>
+          </select>
+        </div>
+
+        <!-- ESTATUS (fijo: Aprobada / Rechazada / Pendiente) -->
+        <div class="fila">
+          <label for="estatus">Estatus</label>
+          <select id="estatus" name="estatus">
+            <option value="">-- Todos --</option>
+            <option value="aprobada"  <%= (typeof estatus !== 'undefined' && estatus === 'aprobada')  ? 'selected' : '' %>>Aprobada</option>
+            <option value="rechazada" <%= (typeof estatus !== 'undefined' && estatus === 'rechazada') ? 'selected' : '' %>>Rechazada</option>
+            <option value="pendiente" <%= (typeof estatus !== 'undefined' && estatus === 'pendiente') ? 'selected' : '' %>>Pendiente</option>
+          </select>
+        </div>
+
+        <div class="botones">
+          <button type="submit" class="btn">Aplicar filtros</button>
+          <a href="/cotizaciones" class="btn btn-secundario">Limpiar</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Panel lateral para Archivos -->
+  <div id="adjuntosOverlay" class="adj-overlay">
+    <div class="adj-panel">
+      <div class="adj-header">
+        <h3 id="adj-header-text">Archivos</h3>
+        <button type="button" class="adj-close" onclick="cerrarAdjuntos()">✖</button>
+      </div>
+      <div id="adj-body" class="adj-body"></div>
+    </div>
+  </div>
+
+  <!-- JS FILTROS -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const overlay   = document.getElementById('filtrosOverlay');
+      const btnToggle = document.getElementById('toggleFiltros');
+      const btnCerrar = document.getElementById('cerrarFiltros');
+
+      function abrirFiltros() {
+        if (overlay) overlay.classList.add('activo');
+      }
+
+      function cerrarFiltros() {
+        if (overlay) overlay.classList.remove('activo');
+      }
+
+      if (btnToggle && overlay) {
+        btnToggle.addEventListener('click', function () {
+          if (overlay.classList.contains('activo')) {
+            cerrarFiltros();
+          } else {
+            abrirFiltros();
+          }
+        });
+      }
+
+      if (btnCerrar) {
+        btnCerrar.addEventListener('click', cerrarFiltros);
+      }
+
+      if (overlay) {
+        overlay.addEventListener('click', function (e) {
+          if (e.target === overlay) {
+            cerrarFiltros();
+          }
+        });
+      }
+    });
+  </script>
+
+  <!-- JS panel Archivos -->
+  <script>
+    function abrirAdjuntos(id) {
+      const tpl = document.getElementById('archivos-template-' + id);
+      if (!tpl) return;
+
+      const overlay  = document.getElementById('adjuntosOverlay');
+      const headerEl = document.getElementById('adj-header-text');
+      const bodyEl   = document.getElementById('adj-body');
+
+      const btn = document.querySelector('.btn-archivos[data-id="' + id + '"]');
+      if (btn && btn.dataset.header) {
+        headerEl.textContent = btn.dataset.header;
+      } else {
+        headerEl.textContent = 'Archivos';
+      }
+
+      bodyEl.innerHTML = tpl.innerHTML;
+      overlay.classList.add('activo');
+    }
+
+    function cerrarAdjuntos() {
+      const overlay = document.getElementById('adjuntosOverlay');
+      if (overlay) overlay.classList.remove('activo');
+    }
+
+    document.addEventListener('click', function (e) {
+      const overlay = document.getElementById('adjuntosOverlay');
+      if (!overlay || !overlay.classList.contains('activo')) return;
+
+      const dentroPanel   = e.target.closest('.adj-panel');
+      const pulsandoBoton = e.target.closest('.btn-archivos');
+      if (!dentroPanel && !pulsandoBoton) {
+        cerrarAdjuntos();
+      }
+    });
+  </script>
+
+</body>
 </html>

@@ -6,6 +6,8 @@ const path = require('path');
 const fs = require('fs');
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 const db = require('./db');
+const multer = require('multer');
+const bcrypt = require('bcryptjs'); // <- Encriptar contraseñas
 
 const app = express();
 
@@ -27,13 +29,385 @@ app.use(session({
 /* ===== Middlewares de sesión/rol ===== */
 function estaLogueado(req, res, next) {
   if (req.session?.usuario) return next();
-  res.redirect('/acceso');
+  return res.redirect('/acceso');
+}
+
+// Normaliza el tipo de usuario: minúsculas, sin espacios y con guión bajo
+function getTipoUsuario(req) {
+  const t = req.session?.usuario?.tipo_usuario;
+  const normalizado = (t || '')
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_'); // "Recursos humanos " -> "recursos_humanos"
+
+  console.log('👉 tipo_usuario crudo:', t, '→ normalizado:', normalizado);
+  return normalizado;
 }
 
 function esAdmin(req, res, next) {
-  if (req.session?.usuario?.tipo_usuario === 'administrador') return next();
-  res.redirect('/catalogo');
+  const tipo = getTipoUsuario(req);
+  if (tipo === 'administrador') return next();
+  return res.redirect('/catalogo');
 }
+
+// Admin O Recursos Humanos (muy tolerante)
+function esAdminORH(req, res, next) {
+  const raw = (req.session?.usuario?.tipo_usuario || '').toString();
+  const tipo = raw.trim().toLowerCase().replace(/\s+/g, '_');
+
+  console.log('👉 esAdminORH - tipo_usuario crudo:', raw, '→ normalizado:', tipo);
+
+  if (
+    tipo === 'administrador' ||
+    tipo === 'recursos_humanos' ||
+    tipo === 'rh' ||
+    tipo.includes('recurso') // "recursos humanos", "recurso humano", etc.
+  ) {
+    return next();
+  }
+
+  return res.redirect('/catalogo');
+}
+
+// Middleware genérico por rol
+function requireRol(...roles) {
+  return function (req, res, next) {
+    const tipo = getTipoUsuario(req);
+    if (roles.includes(tipo)) {
+      return next();
+    }
+    console.log('🚫 Acceso denegado. Rol:', tipo, 'Necesario uno de:', roles);
+    return res.status(403).send('No tienes permisos para realizar esta acción.');
+  };
+}
+
+// Permisos por módulo (ajustables según tus reglas)
+const puedeEditarCatalogo     = requireRol('administrador', 'almacen');
+const puedeEditarEntradas     = requireRol('administrador', 'almacen');
+const puedeEditarSalidas      = requireRol('administrador', 'almacen');
+const puedeEditarClientes     = requireRol('administrador', 'facturacion');
+const puedeEditarCotizaciones = requireRol('administrador', 'cotizacion');
+
+/* ======================================================
+   CONFIGURACIÓN DE MULTER PARA SUBIDA DE ARCHIVOS
+   ====================================================== */
+
+// Configuración de almacenamiento
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const modulo = req.params.modulo;  // entradas, salidas, cotizaciones, facturacion, usuarios
+    const id = req.params.id;          // id de la fila
+
+    let folder;
+    switch (modulo) {
+      case 'entradas': folder = 'entradas'; break;
+      case 'salidas': folder = 'salidas'; break;
+      case 'cotizaciones': folder = 'cotizaciones'; break;
+      case 'facturacion': folder = 'facturacion'; break;
+      case 'usuarios': folder = 'usuarios'; break;
+      default: folder = 'otros';
+    }
+
+    const uploadPath = path.join(__dirname, 'uploads', folder, String(id));
+    fs.mkdirSync(uploadPath, { recursive: true });
+    cb(null, uploadPath);
+  },
+
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const ext = path.extname(file.originalname);
+    const base = path.basename(file.originalname, ext);
+    const safeBase = base.replace(/[^a-zA-Z0-9_-]/g, '_');
+    cb(null, `${safeBase}_${timestamp}${ext}`);
+  }
+});
+
+// Por ahora solo PDFs, luego podemos abrir a más tipos
+function fileFilter(req, file, cb) {
+  if (file.mimetype === 'application/pdf') {
+    cb(null, true);
+  } else {
+    cb(new Error('Solo se permiten archivos PDF'), false);
+  }
+}
+
+const upload = multer({ storage, fileFilter });
+
+/* ======================================================
+   RUTAS GENERALES DE ARCHIVOS ADJUNTOS
+   ====================================================== */
+
+// DESCARGAR ARCHIVO
+app.get('/adjuntos/descargar/:id_archivo', estaLogueado, async (req, res) => {
+  const idArchivo = parseInt(req.params.id_archivo, 10);
+  if (isNaN(idArchivo)) {
+    return res.status(400).send('ID de archivo inválido');
+  }
+
+  try {
+    const [rows] = await db.query(
+      `SELECT * FROM archivo_adjunto WHERE id_archivo = ?`,
+      [idArchivo]
+    );
+
+    if (!rows.length) {
+      return res.status(404).send('Archivo no encontrado');
+    }
+
+    const archivo = rows[0];
+
+    // 🔒 Si es archivo de usuario, solo admin o RH pueden descargar
+    if (archivo.modulo === 'usuario') {
+      const tipo = getTipoUsuario(req);
+      if (!(tipo === 'administrador' || tipo === 'recursos_humanos')) {
+        return res.status(403).send('No tienes permisos para descargar archivos de usuarios.');
+      }
+    }
+
+    const filePath = path.join(__dirname, archivo.ruta_archivo);
+
+    res.download(filePath, archivo.nombre_original, (err) => {
+      if (err) {
+        console.error('Error al descargar archivo:', err);
+        if (!res.headersSent) {
+          res.status(500).send('Error al descargar archivo');
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Error al descargar archivo:', err);
+    res.status(500).send('Error al descargar archivo');
+  }
+});
+
+app.post('/adjuntos/eliminar/:id_archivo', estaLogueado, async (req, res) => {
+  const idArchivo = parseInt(req.params.id_archivo, 10);
+  if (isNaN(idArchivo)) {
+    return res.status(400).send('ID de archivo inválido');
+  }
+
+  try {
+    const [rows] = await db.query(
+      `SELECT * FROM archivo_adjunto WHERE id_archivo = ?`,
+      [idArchivo]
+    );
+
+    if (!rows.length) {
+      return res.status(404).send('Archivo no encontrado');
+    }
+
+    const archivo = rows[0];
+
+    // 🔒 Si es archivo de usuario, solo admin o RH pueden eliminar
+    if (archivo.modulo === 'usuario') {
+      const tipo = getTipoUsuario(req);
+      if (!(tipo === 'administrador' || tipo === 'recursos_humanos')) {
+        return res.status(403).send('No tienes permisos para eliminar archivos de usuarios.');
+      }
+    }
+
+    // 1) Borrar en BD
+    await db.query(`DELETE FROM archivo_adjunto WHERE id_archivo = ?`, [idArchivo]);
+
+    // 2) Borrar archivo físico
+    const filePath = path.join(__dirname, archivo.ruta_archivo);
+    fs.unlink(filePath, (err) => {
+      if (err) console.error('No se pudo borrar archivo físico:', err);
+    });
+
+    // 3) Redirigir al módulo correspondiente
+    let redirect;
+    switch (archivo.modulo) {
+      case 'entrada': redirect = '/entradas'; break;
+      case 'salida': redirect = '/salidas'; break;
+      case 'cotizacion': redirect = '/cotizaciones'; break;
+      case 'facturacion': redirect = '/facturacion'; break;
+      case 'usuario': redirect = '/usuarios'; break;
+      default: redirect = '/';
+    }
+
+    res.redirect(redirect);
+  } catch (err) {
+    console.error('Error al eliminar archivo adjunto:', err);
+    res.status(500).send('Error al eliminar archivo adjunto');
+  }
+});
+
+app.post('/adjuntos/subir/:modulo/:id', estaLogueado, upload.array('archivos', 10), async (req, res) => {
+  const moduloParam = req.params.modulo;  // entradas, salidas, cotizaciones, facturacion, usuarios
+  const idRegistro = parseInt(req.params.id, 10);
+  const usuario = req.session.usuario;
+
+  if (isNaN(idRegistro)) {
+    console.error('ID de registro inválido en adjuntos:', req.params.id);
+    return res.status(400).send('ID de registro inválido');
+  }
+
+  let moduloDb;
+  switch (moduloParam) {
+    case 'entradas':     moduloDb = 'entrada'; break;
+    case 'salidas':      moduloDb = 'salida'; break;
+    case 'cotizaciones': moduloDb = 'cotizacion'; break;
+    case 'facturacion':  moduloDb = 'facturacion'; break;
+    case 'usuarios':     moduloDb = 'usuario'; break;
+    default:
+      console.error('Módulo no válido en adjuntos:', moduloParam);
+      return res.status(400).send('Módulo no válido');
+  }
+
+  // 🔒 Si es módulo usuarios, solo admin o RH pueden subir
+  if (moduloDb === 'usuario') {
+    const tipo = getTipoUsuario(req);
+    if (!(tipo === 'administrador' || tipo === 'recursos_humanos')) {
+      return res.status(403).send('No tienes permisos para subir archivos de usuarios.');
+    }
+  }
+
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).send('No se recibieron archivos');
+  }
+
+  try {
+    for (const file of req.files) {
+      const rutaRelativa = path
+        .relative(__dirname, file.path)
+        .replace(/\\/g, '/');
+
+      await db.query(
+        `
+          INSERT INTO archivo_adjunto
+            (modulo, id_registro, nombre_original, nombre_sistema, mime_type, peso_bytes, ruta_archivo, usuario_fk)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          moduloDb,
+          idRegistro,
+          file.originalname,
+          file.filename,
+          file.mimetype,
+          file.size,
+          rutaRelativa,
+          usuario ? usuario.id_usuario : null
+        ]
+      );
+    }
+
+    const redirects = {
+      entradas: '/entradas',
+      salidas: '/salidas',
+      cotizaciones: '/cotizaciones',
+      facturacion: '/facturacion',
+      usuarios: '/usuarios'
+    };
+
+    res.redirect(redirects[moduloParam] || '/');
+  } catch (err) {
+    console.error('Error guardando archivos adjuntos:', err);
+    res.status(500).send('Error al guardar archivos adjuntos');
+  }
+});
+
+
+// SUBIR ARCHIVOS SOLO PARA ENTRADAS
+app.post('/adjuntos/entradas/:id_entrada',
+  estaLogueado,
+  upload.array('archivos', 10),
+  async (req, res) => {
+    const idEntrada = parseInt(req.params.id_entrada, 10);
+    if (isNaN(idEntrada)) {
+      console.error('ID de entrada inválido:', req.params.id_entrada);
+      return res.status(400).send('ID de entrada inválido');
+    }
+
+    const usuario = req.session.usuario;
+
+    try {
+      if (!req.files || req.files.length === 0) {
+        return res.redirect('/entradas');
+      }
+
+      for (const file of req.files) {
+        const rutaRelativa = path
+          .relative(__dirname, file.path)
+          .replace(/\\/g, '/');
+
+        await db.query(
+          `
+            INSERT INTO archivo_adjunto
+              (modulo, id_registro, nombre_original, nombre_sistema, mime_type, peso_bytes, ruta_archivo, usuario_fk)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            'entrada',
+            idEntrada,
+            file.originalname,
+            file.filename,
+            file.mimetype,
+            file.size,
+            rutaRelativa,
+            usuario ? usuario.id_usuario : null
+          ]
+        );
+      }
+
+      res.redirect('/entradas');
+    } catch (err) {
+      console.error('Error guardando archivos adjuntos (entradas):', err);
+      res.status(500).send('Error al guardar archivos adjuntos');
+    }
+  }
+);
+
+// SUBIR ARCHIVOS SOLO PARA SALIDAS
+app.post('/adjuntos/salidas/:id_salida',
+  estaLogueado,
+  upload.array('archivos', 10),
+  async (req, res) => {
+    const idSalida = parseInt(req.params.id_salida, 10);
+    if (isNaN(idSalida)) {
+      console.error('ID de salida inválido:', req.params.id_salida);
+      return res.status(400).send('ID de salida inválido');
+    }
+
+    const usuario = req.session.usuario;
+
+    try {
+      if (!req.files || req.files.length === 0) {
+        return res.redirect('/salidas');
+      }
+
+      for (const file of req.files) {
+        const rutaRelativa = path
+          .relative(__dirname, file.path)
+          .replace(/\\/g, '/');
+
+        await db.query(
+          `
+            INSERT INTO archivo_adjunto
+              (modulo, id_registro, nombre_original, nombre_sistema, mime_type, peso_bytes, ruta_archivo, usuario_fk)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            'salida',
+            idSalida,
+            file.originalname,
+            file.filename,
+            file.mimetype,
+            file.size,
+            rutaRelativa,
+            usuario ? usuario.id_usuario : null
+          ]
+        );
+      }
+
+      res.redirect('/salidas');
+    } catch (err) {
+      console.error('Error guardando archivos adjuntos (salidas):', err);
+      res.status(500).send('Error al guardar archivos adjuntos');
+    }
+  }
+);
 
 /* ===== Rutas de acceso / login ===== */
 app.get('/', (req, res) => req.session.destroy(() => res.redirect('/acceso')));
@@ -45,20 +419,58 @@ app.get('/acceso', (req, res) => {
 app.post('/login', async (req, res) => {
   const { usuario, password } = req.body;
   try {
-    // Tabla y columnas exactamente como en MySQL (sensible a mayúsculas/minúsculas en Linux)
+    // Primero buscamos solo por userName
     const [results] = await db.query(
       `SELECT * FROM usuario
-       WHERE BINARY TRIM(userName) = ?
-         AND BINARY TRIM(\`contraseña_usuario\`) = ?`,
-      [usuario, password]
+       WHERE BINARY TRIM(userName) = ?`,
+      [usuario]
     );
 
-    if (results.length > 0) {
-      req.session.usuario = results[0];
-      res.redirect('/catalogo');
-    } else {
-      res.render('acceso', { error: 'Usuario o contraseña incorrectos' });
+    if (!results.length) {
+      return res.render('acceso', { error: 'Usuario o contraseña incorrectos' });
     }
+
+    const user = results[0];
+    const hashEnBD = user['contraseña_usuario'];
+
+    let esValida = false;
+
+    if (hashEnBD && hashEnBD.startsWith('$2')) {
+      // Contraseña ya encriptada (bcrypt)
+      esValida = await bcrypt.compare(password, hashEnBD);
+    } else {
+      // Contraseña en texto plano en BD → comparamos directo
+      if (password === hashEnBD) {
+        esValida = true;
+        // Opcional: migrar a bcrypt automáticamente
+        try {
+          const nuevoHash = await bcrypt.hash(password, 10);
+          await db.query(
+            'UPDATE usuario SET `contraseña_usuario` = ? WHERE id_usuario = ?',
+            [nuevoHash, user.id_usuario]
+          );
+          user['contraseña_usuario'] = nuevoHash;
+        } catch (e) {
+          console.error('Error migrando contraseña a bcrypt:', e);
+        }
+      } else {
+        esValida = false;
+      }
+    }
+
+    if (!esValida) {
+      return res.render('acceso', { error: 'Usuario o contraseña incorrectos' });
+    }
+
+    // NORMALIZACIÓN DEL ROL
+    user.tipo_usuario = user.tipo_usuario
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_');
+
+    req.session.usuario = user;
+    res.redirect('/catalogo');
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).send('Error en el servidor');
@@ -70,10 +482,31 @@ app.get('/logout', (req, res) => {
 });
 
 /* ===== Usuarios ===== */
-app.get('/usuarios', estaLogueado, esAdmin, async (req, res) => {
+
+app.get('/usuarios', estaLogueado, esAdminORH, async (req, res) => {
   try {
+    console.log('🧑‍💻 Entrando a /usuarios como:', req.session.usuario);
+    // Todos los usuarios
     const [usuarios] = await db.query('SELECT * FROM usuario');
-    res.render('usuario', { usuarios, usuario: req.session.usuario });
+
+    // Adjuntos del módulo "usuario"
+    const [adjuntos] = await db.query(
+      `SELECT * FROM archivo_adjunto WHERE modulo = 'usuario'`
+    );
+
+    const adjuntosPorUsuario = {};
+    adjuntos.forEach(a => {
+      if (!adjuntosPorUsuario[a.id_registro]) {
+        adjuntosPorUsuario[a.id_registro] = [];
+      }
+      adjuntosPorUsuario[a.id_registro].push(a);
+    });
+
+    res.render('usuario', {
+      usuarios,
+      usuario: req.session.usuario,
+      adjuntosPorUsuario
+    });
   } catch (err) {
     console.error(err);
     res.send('Error cargando usuarios');
@@ -85,7 +518,11 @@ app.get('/usuarios/nuevo', estaLogueado, esAdmin, (req, res) => {
 });
 
 app.post('/usuarios/nuevo', estaLogueado, esAdmin, async (req, res) => {
-  const { userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, contraseña_usuario } = req.body;
+  let { userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, contraseña_usuario } = req.body;
+
+  // Normalizar antes de guardar
+  tipo_usuario = tipo_usuario.trim().toLowerCase().replace(/\s+/g, '_');
+
   try {
     const [existente] = await db.query('SELECT * FROM usuario WHERE BINARY TRIM(userName) = ?', [userName]);
     if (existente.length > 0) {
@@ -97,10 +534,13 @@ app.post('/usuarios/nuevo', estaLogueado, esAdmin, async (req, res) => {
       });
     }
 
+    // Encriptar contraseña antes de guardar
+    const hash = await bcrypt.hash(contraseña_usuario, 10);
+
     await db.query(
       `INSERT INTO usuario (userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, \`contraseña_usuario\`, fechaRegistro_usuario)
        VALUES (?, ?, ?, ?, ?, ?, CURDATE())`,
-      [userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, contraseña_usuario]
+      [userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, hash]
     );
 
     res.redirect('/usuarios');
@@ -128,14 +568,39 @@ app.get('/usuarios/editar/:id', estaLogueado, esAdmin, async (req, res) => {
 });
 
 app.post('/usuarios/editar/:id', estaLogueado, esAdmin, async (req, res) => {
-  const { userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, contraseña_usuario } = req.body;
+  let { userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, contraseña_usuario } = req.body;
+
+  // Normalizar el rol también al editar
+  tipo_usuario = tipo_usuario.trim().toLowerCase().replace(/\s+/g, '_');
+
+  const id = req.params.id;
+
   try {
+    // Obtener contraseña actual
+    const [[actual]] = await db.query(
+      'SELECT `contraseña_usuario` FROM usuario WHERE id_usuario = ?',
+      [id]
+    );
+    if (!actual) {
+      return res.send('Usuario no encontrado');
+    }
+
+    let passwordToSave;
+
+    if (contraseña_usuario && contraseña_usuario.trim() !== '') {
+      // Si se escribió una nueva contraseña, la encriptamos
+      passwordToSave = await bcrypt.hash(contraseña_usuario, 10);
+    } else {
+      // Si el campo viene vacío, conservamos la anterior
+      passwordToSave = actual['contraseña_usuario'];
+    }
+
     await db.query(
       `UPDATE usuario
          SET userName = ?, nombreCompleto = ?, tipo_usuario = ?, telefono_usuario = ?,
              correo_usuario = ?, \`contraseña_usuario\` = ?
        WHERE id_usuario = ?`,
-      [userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, contraseña_usuario, req.params.id]
+      [userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, passwordToSave, id]
     );
     res.redirect('/usuarios');
   } catch (err) {
@@ -180,27 +645,23 @@ app.get('/reporte', estaLogueado, async (req, res) => {
     }
     const plantillaBytes = fs.readFileSync(plantillaPath);
 
-    // Importante: crea un PDF nuevo y copia SIEMPRE la página 0 de la plantilla
     const outPdf = await PDFDocument.create();
     const basePdf = await PDFDocument.load(plantillaBytes);
     const font = await outPdf.embedFont(StandardFonts.Helvetica);
 
-    // Helper para agregar una página con la plantilla como fondo
     const addTemplatePage = async () => {
       const [tpl] = await outPdf.copyPages(basePdf, [0]);
       return outPdf.addPage(tpl);
     };
 
-    // Crea la primera página con plantilla
     let page = await addTemplatePage();
     let { width, height } = page.getSize();
 
-    // Config de la tabla
     const columnas = ["Producto", "Lote", "Stock", "Caducidad", "Días Restantes", "Estado"];
     const colWidths = [140, 70, 50, 90, 90, 90];
     const rowHeight = 25;
     const startX = 50;
-    const topMargin = 180;  // espacio para encabezado de tu hoja base
+    const topMargin = 180;
     const bottomMargin = 50;
 
     let startY = height - topMargin;
@@ -229,7 +690,7 @@ app.get('/reporte', estaLogueado, async (req, res) => {
         }
 
         const text = toStr(arr[j]);
-        const maxChars = Math.max(1, Math.floor((colWidths[j] - 6) / 5.5)); // recorte aproximado
+        const maxChars = Math.max(1, Math.floor((colWidths[j] - 6) / 5.5));
         const shown = text.length > maxChars ? text.slice(0, maxChars - 1) + '…' : text;
 
         page.drawText(shown, {
@@ -246,13 +707,12 @@ app.get('/reporte', estaLogueado, async (req, res) => {
     };
 
     const newPageWithHeader = async () => {
-      page = await addTemplatePage();       // <- plantilla en cada página nueva
+      page = await addTemplatePage();
       ({ width, height } = page.getSize());
-      startY = height - 60;                 // margen superior en páginas siguientes
-      drawRow(columnas, true);              // reimprime cabecera de tabla
+      startY = height - 60;
+      drawRow(columnas, true);
     };
 
-    // Pintar cabecera y filas
     drawRow(columnas, true);
 
     for (const r of rows) {
@@ -309,7 +769,6 @@ app.get('/catalogo/buscar', estaLogueado, async (req, res) => {
       [q, q, q]
     );
 
-    // Nota: pasamos "q" por si quieres mostrar el valor buscado en el input del EJS
     res.render('catalogo', { catalogo: results, usuario: req.session.usuario, q });
   } catch (err) {
     console.error('Error buscando en catálogo:', err);
@@ -317,11 +776,11 @@ app.get('/catalogo/buscar', estaLogueado, async (req, res) => {
   }
 });
 
-app.get('/catalogo/nuevo', estaLogueado, (req, res) => {
+app.get('/catalogo/nuevo', estaLogueado, puedeEditarCatalogo, (req, res) => {
   res.render('editar_catalogo', { medicamento: null, usuario: req.session.usuario });
 });
 
-app.post('/catalogo/nuevo', estaLogueado, async (req, res) => {
+app.post('/catalogo/nuevo', estaLogueado, puedeEditarCatalogo, async (req, res) => {
   const { clave_catalogo, nombreProdu_catalogo, presentacion_catalogo, claveSSA_catalogo, precioVenta_catalogo, costoUnitario_catalogo } = req.body;
   try {
     await db.query(
@@ -336,7 +795,7 @@ app.post('/catalogo/nuevo', estaLogueado, async (req, res) => {
   }
 });
 
-app.get('/catalogo/editar/:id', estaLogueado, async (req, res) => {
+app.get('/catalogo/editar/:id', estaLogueado, puedeEditarCatalogo, async (req, res) => {
   try {
     const [results] = await db.query('SELECT * FROM catalogo WHERE id_catalogo = ?', [req.params.id]);
     if (!results.length) return res.send('Medicamento no encontrado');
@@ -347,7 +806,7 @@ app.get('/catalogo/editar/:id', estaLogueado, async (req, res) => {
   }
 });
 
-app.post('/catalogo/editar/:id', estaLogueado, async (req, res) => {
+app.post('/catalogo/editar/:id', estaLogueado, puedeEditarCatalogo, async (req, res) => {
   const { clave_catalogo, nombreProdu_catalogo, presentacion_catalogo, claveSSA_catalogo, precioVenta_catalogo, costoUnitario_catalogo } = req.body;
   try {
     await db.query(
@@ -363,7 +822,7 @@ app.post('/catalogo/editar/:id', estaLogueado, async (req, res) => {
   }
 });
 
-app.post('/catalogo/eliminar/:id', estaLogueado, async (req, res) => {
+app.post('/catalogo/eliminar/:id', estaLogueado, puedeEditarCatalogo, async (req, res) => {
   try {
     const [result] = await db.query('DELETE FROM catalogo WHERE id_catalogo = ?', [req.params.id]);
     if (result.affectedRows === 0) return res.send('Medicamento no encontrado');
@@ -387,7 +846,34 @@ app.get('/entradas', estaLogueado, async (req, res) => {
       LEFT JOIN catalogo c   ON i.producto_FKinventario = c.id_catalogo
       ORDER BY e.fechaDeEntrada DESC
     `);
-    res.render('entradas', { entrada, usuario: req.session.usuario });
+
+    const idsEntradas = entrada.map(e => e.id_entrada);
+    let adjuntosPorEntrada = {};
+
+    if (idsEntradas.length > 0) {
+      const [adjuntos] = await db.query(
+        `
+          SELECT *
+          FROM archivo_adjunto
+          WHERE modulo = 'entrada'
+            AND id_registro IN (?)
+        `,
+        [idsEntradas]
+      );
+
+      adjuntos.forEach(a => {
+        if (!adjuntosPorEntrada[a.id_registro]) {
+          adjuntosPorEntrada[a.id_registro] = [];
+        }
+        adjuntosPorEntrada[a.id_registro].push(a);
+      });
+    }
+
+    res.render('entradas', {
+      entrada,
+      adjuntosPorEntrada,
+      usuario: req.session.usuario
+    });
   } catch (err) {
     console.error('Error cargando entradas:', err);
     res.send('Error cargando entradas');
@@ -421,10 +907,33 @@ app.get('/entradas/buscar', estaLogueado, async (req, res) => {
       [q, q, q, q, q]
     );
 
+    const idsEntradas = entrada.map(e => e.id_entrada);
+    let adjuntosPorEntrada = {};
+
+    if (idsEntradas.length > 0) {
+      const [adjuntos] = await db.query(
+        `
+          SELECT *
+          FROM archivo_adjunto
+          WHERE modulo = 'entrada'
+            AND id_registro IN (?)
+        `,
+        [idsEntradas]
+      );
+
+      adjuntos.forEach(a => {
+        if (!adjuntosPorEntrada[a.id_registro]) {
+          adjuntosPorEntrada[a.id_registro] = [];
+        }
+        adjuntosPorEntrada[a.id_registro].push(a);
+      });
+    }
+
     res.render('entradas', {
       entrada,
       usuario: req.session.usuario,
-      q
+      q,
+      adjuntosPorEntrada
     });
   } catch (err) {
     console.error('Error buscando entradas:', err);
@@ -432,8 +941,7 @@ app.get('/entradas/buscar', estaLogueado, async (req, res) => {
   }
 });
 
-
-app.get('/entradas/nueva', estaLogueado, async (req, res) => {
+app.get('/entradas/nueva', estaLogueado, puedeEditarEntradas, async (req, res) => {
   try {
     const [productos] = await db.query(`
       SELECT id_catalogo, clave_catalogo, nombreProdu_catalogo
@@ -464,7 +972,7 @@ app.get('/entradas/nueva', estaLogueado, async (req, res) => {
   }
 });
 
-app.post('/entradas/nueva', estaLogueado, async (req, res) => {
+app.post('/entradas/nueva', estaLogueado, puedeEditarEntradas, async (req, res) => {
   const { Fecha_de_entrada, Proveedor, Producto, Lote, Caducidad, Cantidad, Costo_Total } = req.body;
   const conn = await db.getConnection();
   try {
@@ -504,6 +1012,7 @@ app.post('/entradas/nueva', estaLogueado, async (req, res) => {
         `INSERT INTO inventario
           (producto_FKinventario, lote_inventario, stock_inventario, caducidad_inventario, diasRestantes_inventario, estadoDelProducto_inventario)
          VALUES (?, ?, ?, ?, DATEDIFF(?, CURDATE()), 'Disponible')`,
+
         [Producto, Lote, Number(Cantidad), Caducidad, Caducidad]
       );
       inventarioId = nuevoInv.insertId;
@@ -527,7 +1036,7 @@ app.post('/entradas/nueva', estaLogueado, async (req, res) => {
   }
 });
 
-app.get('/entradas/editar/:id', estaLogueado, async (req, res) => {
+app.get('/entradas/editar/:id', estaLogueado, puedeEditarEntradas, async (req, res) => {
   const entradaId = req.params.id;
   try {
     const [[entrada]] = await db.query(`
@@ -565,7 +1074,7 @@ app.get('/entradas/editar/:id', estaLogueado, async (req, res) => {
   }
 });
 
-app.post('/entradas/editar/:id', estaLogueado, async (req, res) => {
+app.post('/entradas/editar/:id', estaLogueado, puedeEditarEntradas, async (req, res) => {
   const entradaId = req.params.id;
   const { Fecha_de_entrada, Proveedor, Producto, Lote, Caducidad, Cantidad, Costo_Total } = req.body;
   const conn = await db.getConnection();
@@ -707,36 +1216,50 @@ app.get('/salidas', estaLogueado, async (req, res) => {
   try {
     const [salidas] = await db.query(`
       SELECT
-  s.id_salida                  AS Id,
-  s.ordenDeCompra_salida      AS orden_de_compra,
-  s.fecha_salida              AS Fecha,
-  cl.nombre_cliente           AS ClienteNombre,
+        s.id_salida                  AS Id,
+        s.ordenDeCompra_salida      AS orden_de_compra,
+        s.fecha_salida              AS Fecha,
+        cl.nombre_cliente           AS ClienteNombre,
 
-  CONCAT('(', ca.clave_catalogo, ') ', 
-         TRIM(REPLACE(ca.nombreProdu_catalogo, CONCAT('(', ca.clave_catalogo, ')'), '')))
-    AS ProductoNombre,
+        CONCAT('(', ca.clave_catalogo, ') ', 
+               TRIM(REPLACE(ca.nombreProdu_catalogo, CONCAT('(', ca.clave_catalogo, ')'), '')))
+          AS ProductoNombre,
 
-  ca.clave_catalogo           AS Codigo,
-  s.lote                      AS Lote,
-  s.cantidad                  AS Cantidad,
-  s.precioDeVenta_salida      AS Precio_Venta,
-  s.totalFacturado_salida     AS Total_Facturado,
-  s.folioDeFacturacion_salida AS Folio_de_Facturacion
-  FROM salida s
-  LEFT JOIN cliente    cl ON cl.id_cliente   = s.id_cliente
-  LEFT JOIN inventario i  ON i.id_inventario = s.id_inventario
-  LEFT JOIN catalogo   ca ON ca.id_catalogo  = i.producto_FKinventario
-  ORDER BY s.fecha_salida DESC
-
+        ca.clave_catalogo           AS Codigo,
+        s.lote                      AS Lote,
+        s.cantidad                  AS Cantidad,
+        s.precioDeVenta_salida      AS Precio_Venta,
+        s.totalFacturado_salida     AS Total_Facturado,
+        s.folioDeFacturacion_salida AS Folio_de_Facturacion
+      FROM salida s
+      LEFT JOIN cliente    cl ON cl.id_cliente   = s.id_cliente
+      LEFT JOIN inventario i  ON i.id_inventario = s.id_inventario
+      LEFT JOIN catalogo   ca ON ca.id_catalogo  = i.producto_FKinventario
+      ORDER BY s.fecha_salida DESC
     `);
 
-    res.render('salidas', { salidas, usuario: req.session.usuario });
+    const [adjuntos] = await db.query(
+      `SELECT * FROM archivo_adjunto WHERE modulo = 'salida'`
+    );
+
+    const adjuntosPorSalida = {};
+    for (const a of adjuntos) {
+      if (!adjuntosPorSalida[a.id_registro]) {
+        adjuntosPorSalida[a.id_registro] = [];
+      }
+      adjuntosPorSalida[a.id_registro].push(a);
+    }
+
+    res.render('salidas', {
+      salidas,
+      adjuntosPorSalida,
+      usuario: req.session.usuario
+    });
   } catch (err) {
     console.error('Error cargando salidas:', err);
     res.send('Error cargando salidas');
   }
 });
-
 
 app.get('/salidas/buscar', estaLogueado, async (req, res) => {
   const orden = req.query.orden_buscar?.toString().trim();
@@ -771,7 +1294,7 @@ app.get('/salidas/buscar', estaLogueado, async (req, res) => {
   }
 });
 
-app.get('/salidas/nueva', estaLogueado, async (req, res) => {
+app.get('/salidas/nueva', estaLogueado, puedeEditarSalidas, async (req, res) => {
   try {
     const [clientes] = await db.query(`
       SELECT id_cliente AS Id, nombre_cliente AS Nombre
@@ -822,7 +1345,7 @@ app.get('/salidas/nueva', estaLogueado, async (req, res) => {
   }
 });
 
-app.post('/salidas/nueva', estaLogueado, async (req, res) => {
+app.post('/salidas/nueva', estaLogueado, puedeEditarSalidas, async (req, res) => {
   const conn = await db.getConnection();
   try {
     let { Fecha, ClienteId, Producto, Lote, Cantidad, Precio_Venta, Total_Facturado, orden_de_compra, Folio_de_Facturacion } = req.body;
@@ -891,7 +1414,7 @@ app.post('/salidas/nueva', estaLogueado, async (req, res) => {
   }
 });
 
-app.get('/salidas/editar/:id', estaLogueado, async (req, res) => {
+app.get('/salidas/editar/:id', estaLogueado, puedeEditarSalidas, async (req, res) => {
   const salidaId = req.params.id;
   try {
     const [[salida]] = await db.query(`
@@ -950,7 +1473,7 @@ app.get('/salidas/editar/:id', estaLogueado, async (req, res) => {
   }
 });
 
-app.post('/salidas/editar/:id', estaLogueado, async (req, res) => {
+app.post('/salidas/editar/:id', estaLogueado, puedeEditarSalidas, async (req, res) => {
   const salidaId = req.params.id;
   const conn = await db.getConnection();
   try {
@@ -1146,7 +1669,6 @@ app.get('/inventario', estaLogueado, async (req, res) => {
         i.stock_inventario,
         i.caducidad_inventario,
 
-        -- Aquí armamos (Clave) Nombre
         CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS ProductoNombre,
         c.clave_catalogo        AS Codigo,
         c.presentacion_catalogo AS Presentacion,
@@ -1172,7 +1694,6 @@ app.get('/inventario', estaLogueado, async (req, res) => {
   }
 });
 
-
 /* ===== Clientes ===== */
 app.get('/clientes', estaLogueado, async (req, res) => {
   try {
@@ -1194,12 +1715,12 @@ app.get('/clientes', estaLogueado, async (req, res) => {
   }
 });
 
-app.get('/clientes/nuevo', estaLogueado, async (req, res) => {
+app.get('/clientes/nuevo', estaLogueado, puedeEditarClientes, async (req, res) => {
   const cliente = { Id: 0, Nombre: '', RFC: '', Direccion: '', Telefono: '', Correo: '' };
   res.render('editar_cliente', { editar: false, cliente, usuario: req.session.usuario });
 });
 
-app.post('/clientes/nuevo', estaLogueado, async (req, res) => {
+app.post('/clientes/nuevo', estaLogueado, puedeEditarClientes, async (req, res) => {
   const { Nombre, RFC, Direccion, Telefono, Correo } = req.body;
   try {
     await db.query(
@@ -1214,7 +1735,7 @@ app.post('/clientes/nuevo', estaLogueado, async (req, res) => {
   }
 });
 
-app.get('/clientes/editar/:id', estaLogueado, async (req, res) => {
+app.get('/clientes/editar/:id', estaLogueado, puedeEditarClientes, async (req, res) => {
   const clienteId = req.params.id;
   try {
     const [resultados] = await db.query(`
@@ -1238,7 +1759,7 @@ app.get('/clientes/editar/:id', estaLogueado, async (req, res) => {
   }
 });
 
-app.post('/clientes/editar/:id', estaLogueado, async (req, res) => {
+app.post('/clientes/editar/:id', estaLogueado, puedeEditarClientes, async (req, res) => {
   const clienteId = req.params.id;
   const { Nombre, RFC, Direccion, Telefono, Correo } = req.body;
   try {
@@ -1255,7 +1776,7 @@ app.post('/clientes/editar/:id', estaLogueado, async (req, res) => {
   }
 });
 
-app.post('/clientes/eliminar/:id', estaLogueado, async (req, res) => {
+app.post('/clientes/eliminar/:id', estaLogueado, puedeEditarClientes, async (req, res) => {
   const clienteId = req.params.id;
   try {
     await db.query('DELETE FROM cliente WHERE id_cliente = ?', [clienteId]);
@@ -1267,10 +1788,31 @@ app.post('/clientes/eliminar/:id', estaLogueado, async (req, res) => {
 });
 
 /* ===== Cotizaciones ===== */
-function formatDateLocal(date) { if (!date) return null; const y = date.getFullYear(); const m = String(date.getMonth() + 1).padStart(2, '0'); const d = String(date.getDate()).padStart(2, '0'); return `${y}-${m}-${d}`; }
-function parseDateLocal(s) { if (!s) return null; const [y, m, d] = String(s).split('-').map(Number); const dt = new Date(y, m - 1, d); if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null; return dt; }
-function addDaysLocal(dt, days) { const c = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); c.setDate(c.getDate() + days); return c; }
-function diffDaysLocal(a, b) { const MS = 86400000; const a0 = new Date(a.getFullYear(), a.getMonth(), a.getDate()); const b0 = new Date(b.getFullYear(), b.getMonth(), b.getDate()); return Math.round((b0 - a0) / MS); }
+function formatDateLocal(date) {
+  if (!date) return null;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+function parseDateLocal(s) {
+  if (!s) return null;
+  const [y, m, d] = String(s).split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+  return dt;
+}
+function addDaysLocal(dt, days) {
+  const c = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  c.setDate(c.getDate() + days);
+  return c;
+}
+function diffDaysLocal(a, b) {
+  const MS = 86400000;
+  const a0 = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+  const b0 = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((b0 - a0) / MS);
+}
 function calcularVigenciaYFechaFin(fechaDeFolio, vigenciaInput, fechaFinInput) {
   const inicio = parseDateLocal(fechaDeFolio);
   if (!inicio) return { vigencia: null, fechaFin: null };
@@ -1278,10 +1820,16 @@ function calcularVigenciaYFechaFin(fechaDeFolio, vigenciaInput, fechaFinInput) {
   const fStr = (fechaFinInput ?? '').toString().trim();
   let vigencia = (vStr !== '' && !Number.isNaN(Number(vStr))) ? Number(vStr) : null;
   let fechaFin = fStr !== '' ? parseDateLocal(fStr) : null;
-  if (vigencia !== null && vigencia >= 0 && !fechaFin) { fechaFin = addDaysLocal(inicio, vigencia); }
-  else if ((vigencia === null || Number.isNaN(vigencia)) && fechaFin) { const dias = diffDaysLocal(inicio, fechaFin); vigencia = dias >= 0 ? dias : null; }
-  else if (vigencia !== null && fechaFin) { fechaFin = addDaysLocal(inicio, Math.max(0, vigencia)); }
-  else { return { vigencia: null, fechaFin: null }; }
+  if (vigencia !== null && vigencia >= 0 && !fechaFin) {
+    fechaFin = addDaysLocal(inicio, vigencia);
+  } else if ((vigencia === null || Number.isNaN(vigencia)) && fechaFin) {
+    const dias = diffDaysLocal(inicio, fechaFin);
+    vigencia = dias >= 0 ? dias : null;
+  } else if (vigencia !== null && fechaFin) {
+    fechaFin = addDaysLocal(inicio, Math.max(0, vigencia));
+  } else {
+    return { vigencia: null, fechaFin: null };
+  }
   if (vigencia !== null && (!Number.isFinite(vigencia) || vigencia < 0)) vigencia = null;
   const fechaFinStr = fechaFin ? formatDateLocal(fechaFin) : null;
   return { vigencia, fechaFin: fechaFinStr };
@@ -1299,8 +1847,10 @@ async function generateFolioIfEmpty(conn, folioInput) {
   if (folio !== '') return folio;
   const [cur] = await conn.query('SELECT id_consecutivo, ultimoValor FROM consecutivo WHERE nombre=? FOR UPDATE', ['cotizacion']);
   let idc, ultimo = 0;
-  if (cur.length) { idc = cur[0].id_consecutivo; ultimo = Number(cur[0].ultimoValor || 0); }
-  else {
+  if (cur.length) {
+    idc = cur[0].id_consecutivo;
+    ultimo = Number(cur[0].ultimoValor || 0);
+  } else {
     const [ins] = await conn.query('INSERT INTO consecutivo (nombre, ultimoValor) VALUES (?,?)', ['cotizacion', 0]);
     idc = ins.insertId; ultimo = 0;
   }
@@ -1311,7 +1861,81 @@ async function generateFolioIfEmpty(conn, folioInput) {
 
 app.get('/cotizaciones', estaLogueado, async (req, res) => {
   try {
-    const [rows] = await db.query(`
+    // ========= 1) Leer filtros desde query =========
+    const qRaw           = (req.query.q || '').toString().trim();
+    const mesRaw         = (req.query.mes || '').toString().trim();
+    const anioRaw        = (req.query.anio || '').toString().trim();
+    const dependenciaRaw = (req.query.dependencia || '').toString().trim();
+    const responsableRaw = (req.query.responsable || '').toString().trim(); // id_usuario
+    const estatusRaw     = (req.query.estatus || '').toString().trim();     // 'aprobada','rechazada','pendiente'
+
+    let q           = qRaw;
+    let mes         = mesRaw ? parseInt(mesRaw, 10)  : null;
+    let anio        = anioRaw ? parseInt(anioRaw, 10) : null;
+    let dependencia = dependenciaRaw || '';
+    let responsable = responsableRaw || '';
+    let estatus     = estatusRaw || '';
+
+    if (isNaN(mes))  mes  = null;
+    if (isNaN(anio)) anio = null;
+
+    // Mapeo de estatus del filtro (minúsculas) a lo que guardas en BD (por ejemplo: 'Aprobada', 'Pendiente', etc.)
+    const mapaEstatus = {
+      'aprobada'  : 'Aprobada',
+      'rechazada' : 'Rechazada',
+      'pendiente' : 'Pendiente'
+    };
+    const estatusBD = estatus ? (mapaEstatus[estatus.toLowerCase()] || null) : null;
+
+    // ========= 2) WHERE dinámico =========
+    const condiciones = [];
+    const params = [];
+
+    if (mes !== null) {
+      condiciones.push('MONTH(c.fechaDeFolio_cotizacion) = ?');
+      params.push(mes);
+    }
+
+    if (anio !== null) {
+      condiciones.push('YEAR(c.fechaDeFolio_cotizacion) = ?');
+      params.push(anio);
+    }
+
+    if (dependencia !== '') {
+      condiciones.push('c.dependencia_cotizacion = ?');
+      params.push(dependencia);
+    }
+
+    if (responsable !== '') {
+      condiciones.push('c.responsableDeLaCotizacionFK = ?');
+      params.push(parseInt(responsable, 10));
+    }
+
+    if (estatusBD) {
+      condiciones.push('c.estatus_cotizacion = ?');
+      params.push(estatusBD);
+    }
+
+    if (q !== '') {
+      const like = `%${q}%`;
+      condiciones.push(`
+        (
+          c.folio_cotizacion LIKE ?
+          OR CONCAT('SLM-', LPAD(c.id_cotizacion, 5, '0')) LIKE ?
+          OR c.dependencia_cotizacion LIKE ?
+          OR COALESCE(u.nombreCompleto, '') LIKE ?
+          OR c.estatus_cotizacion LIKE ?
+        )
+      `);
+      for (let i = 0; i < 5; i++) params.push(like);
+    }
+
+    const whereClause = condiciones.length
+      ? 'WHERE ' + condiciones.join(' AND ')
+      : '';
+
+    // ========= 3) Consulta principal =========
+    const [cotizaciones] = await db.query(`
       SELECT
         c.id_cotizacion AS id,
         CASE
@@ -1327,17 +1951,107 @@ app.get('/cotizaciones', estaLogueado, async (req, res) => {
         c.vigenciaDeLaCotizacion       AS vigenciaDeLaCotizacion,
         c.fechaFinDeLaCotizacion       AS fechaFinDeLaCotizacion,
         COALESCE(u.nombreCompleto, '—') AS responsableDeLaCotizacion,
+        c.responsableDeLaCotizacionFK  AS responsableDeLaCotizacionFK,
         c.estatus_cotizacion           AS estatusDeLaCotizacion,
         c.partidasAsignadas_cotizacion AS partidasAsignadas,
         c.montoMaxAsignado_cotizacion  AS montoMaximoAsignado
       FROM cotizacion c
       LEFT JOIN usuario u ON u.id_usuario = c.responsableDeLaCotizacionFK
+      ${whereClause}
       ORDER BY c.id_cotizacion DESC
+    `, params);
+
+    // ========= 4) Adjuntos por cotización =========
+    let adjuntosPorCotizacion = {};
+
+    if (cotizaciones.length > 0) {
+      const ids = cotizaciones.map(c => c.id);
+
+      const [adjuntos] = await db.query(
+        `
+          SELECT 
+            id_archivo,
+            id_registro,
+            nombre_original
+          FROM archivo_adjunto
+          WHERE modulo = 'cotizacion'
+            AND id_registro IN (?)
+        `,
+        [ids]
+      );
+
+      adjuntos.forEach(a => {
+        if (!adjuntosPorCotizacion[a.id_registro]) {
+          adjuntosPorCotizacion[a.id_registro] = [];
+        }
+        adjuntosPorCotizacion[a.id_registro].push(a);
+      });
+    }
+
+    // ========= 5) Listas para filtros (meses, años, dependencias, responsables) =========
+
+    // Meses y años donde sí hay cotizaciones
+    const [periodos] = await db.query(`
+      SELECT DISTINCT
+        YEAR(c.fechaDeFolio_cotizacion)  AS anio,
+        MONTH(c.fechaDeFolio_cotizacion) AS mes
+      FROM cotizacion c
+      WHERE c.fechaDeFolio_cotizacion IS NOT NULL
+      ORDER BY anio DESC, mes ASC
     `);
 
+    const setAnios = new Set();
+    const setMeses = new Set();
+
+    periodos.forEach(p => {
+      if (p.anio) setAnios.add(p.anio);
+      if (p.mes)  setMeses.add(p.mes);
+    });
+
+    const listaAniosCot = Array.from(setAnios).sort((a, b) => b - a); // años desc
+    const listaMesesCot = Array.from(setMeses).sort((a, b) => a - b); // meses asc
+
+    // Dependencias distintas
+    const [depsRows] = await db.query(`
+      SELECT DISTINCT dependencia_cotizacion AS dependencia
+      FROM cotizacion
+      WHERE dependencia_cotizacion IS NOT NULL
+        AND dependencia_cotizacion <> ''
+      ORDER BY dependencia_cotizacion ASC
+    `);
+    const dependenciasLista = depsRows.map(r => r.dependencia);
+
+    // Responsables distintos (id_usuario + nombre)
+    const [respRows] = await db.query(`
+      SELECT DISTINCT
+        u.id_usuario,
+        u.nombreCompleto
+      FROM cotizacion c
+      JOIN usuario u ON u.id_usuario = c.responsableDeLaCotizacionFK
+      WHERE c.responsableDeLaCotizacionFK IS NOT NULL
+      ORDER BY u.nombreCompleto ASC
+    `);
+    const responsablesLista = respRows; // [{id_usuario, nombreCompleto}, ...]
+
+    // ========= 6) Render =========
     res.render('cotizaciones', {
       usuario: req.session.usuario,
-      cotizaciones: rows
+      cotizaciones,
+      adjuntosPorCotizacion,
+
+      // filtros actuales
+      q,
+      mes,
+      anio,
+      dependencia,
+      responsable,
+      estatus,
+
+      // listas para combos
+      listaAniosCot,
+      listaMesesCot,
+      dependenciasLista,
+      responsablesLista
     });
   } catch (err) {
     console.error('Error cargando cotizaciones:', err);
@@ -1345,10 +2059,6 @@ app.get('/cotizaciones', estaLogueado, async (req, res) => {
   }
 });
 
-
-/* ========================================================= */
-/* ✅ ✅ ✅  BLOQUE COMPLETO /cotizaciones CON BUSCADOR       */
-/* ========================================================= */
 app.get('/cotizaciones/buscar', estaLogueado, async (req, res) => {
   const folio = req.query.folio_buscar?.toString().trim();
   if (!folio) return res.redirect('/cotizaciones');
@@ -1385,7 +2095,7 @@ app.get('/cotizaciones/buscar', estaLogueado, async (req, res) => {
     `, [
       folio,
       folio,
-      isNumeric ? Number(folio) : -1 // si no es numérico, no matchea por id
+      isNumeric ? Number(folio) : -1
     ]);
 
     res.render('cotizaciones', { cotizaciones, usuario: req.session.usuario });
@@ -1395,11 +2105,7 @@ app.get('/cotizaciones/buscar', estaLogueado, async (req, res) => {
   }
 });
 
-/* ========================================================= */
-/* ✅ FIN DEL BLOQUE MODIFICADO. LO DEMÁS SIGUE IGUAL ✅      */
-/* ========================================================= */
-
-app.get('/cotizaciones/nueva', estaLogueado, async (req, res) => {
+app.get('/cotizaciones/nueva', estaLogueado, puedeEditarCotizaciones, async (req, res) => {
   try {
     const [usuarios] = await db.query(
       'SELECT id_usuario, nombreCompleto AS nombre_usuario FROM usuario ORDER BY nombreCompleto ASC'
@@ -1411,7 +2117,7 @@ app.get('/cotizaciones/nueva', estaLogueado, async (req, res) => {
   }
 });
 
-app.post('/cotizaciones/nueva', estaLogueado, async (req, res) => {
+app.post('/cotizaciones/nueva', estaLogueado, puedeEditarCotizaciones, async (req, res) => {
   let conn;
   try {
     const {
@@ -1460,7 +2166,7 @@ app.post('/cotizaciones/nueva', estaLogueado, async (req, res) => {
   }
 });
 
-app.get('/cotizaciones/editar/:id', estaLogueado, async (req, res) => {
+app.get('/cotizaciones/editar/:id', estaLogueado, puedeEditarCotizaciones, async (req, res) => {
   try {
     const { id } = req.params;
     const [rows] = await db.query(
@@ -1508,7 +2214,7 @@ app.get('/cotizaciones/editar/:id', estaLogueado, async (req, res) => {
   }
 });
 
-app.post('/cotizaciones/editar/:id', estaLogueado, async (req, res) => {
+app.post('/cotizaciones/editar/:id', estaLogueado, puedeEditarCotizaciones, async (req, res) => {
   let conn;
   try {
     const { id } = req.params;
@@ -1579,7 +2285,7 @@ app.post('/cotizaciones/editar/:id', estaLogueado, async (req, res) => {
   }
 });
 
-app.get('/cotizaciones/eliminar/:id', estaLogueado, async (req, res) => {
+app.get('/cotizaciones/eliminar/:id', estaLogueado, puedeEditarCotizaciones, async (req, res) => {
   try {
     await db.query('DELETE FROM cotizacion WHERE id_cotizacion = ?', [req.params.id]);
   } catch (err) {
@@ -1588,6 +2294,649 @@ app.get('/cotizaciones/eliminar/:id', estaLogueado, async (req, res) => {
     res.redirect('/cotizaciones');
   }
 });
+
+
+// ===============================FACTURACION===============================
+
+// ===== Middleware para restringir a administradores y facturación =====
+function soloAdminYFacturacion(req, res, next) {
+  if (!req.session?.usuario) {
+    return res.redirect('/acceso');
+  }
+  const tipo = getTipoUsuario(req);
+  if (tipo === 'administrador' || tipo === 'facturacion') {
+    return next();
+  }
+  return res.status(403).send('No tienes permisos para ver el módulo de facturación.');
+}
+
+/* ===== Rutas de Facturación ===== */
+
+// Listado + buscador flexible + barra lateral mes/año + total del mes
+app.get('/facturacion', estaLogueado, soloAdminYFacturacion, async (req, res) => {
+  try {
+    const hoy = new Date();
+
+    const q            = (req.query.q || '').trim();
+    const filtroEstado = (req.query.estado || '').trim();
+    const mesRaw       = req.query.mes;
+    const anioRaw      = req.query.anio;
+
+    let mes = null;
+    let anio = null;
+    let usarFiltroFecha = false;
+
+    if (mesRaw) {
+      const m = parseInt(mesRaw, 10);
+      if (!isNaN(m) && m >= 1 && m <= 12) {
+        mes = m;
+        usarFiltroFecha = true;
+      }
+    }
+
+    if (anioRaw) {
+      const a = parseInt(anioRaw, 10);
+      if (!isNaN(a) && a >= 2000) {
+        anio = a;
+        usarFiltroFecha = true;
+      }
+    }
+
+    // Si no hay nada, por defecto mes/año actual
+    if (!q && !filtroEstado && !usarFiltroFecha) {
+      mes = hoy.getMonth() + 1;
+      anio = hoy.getFullYear();
+      usarFiltroFecha = true;
+    }
+
+    const condiciones = [];
+    const params = [];
+
+    if (usarFiltroFecha && mes && anio) {
+      condiciones.push('MONTH(f.fecha) = ?');
+      params.push(mes);
+
+      condiciones.push('YEAR(f.fecha) = ?');
+      params.push(anio);
+    }
+
+    if (filtroEstado && ['pagado', 'pendiente', 'cancelado'].includes(filtroEstado)) {
+      condiciones.push('f.estado = ?');
+      params.push(filtroEstado);
+    }
+
+    if (q) {
+      const like = `%${q}%`;
+      condiciones.push(`
+        (
+          f.odc LIKE ? OR
+          f.folio_fiscal LIKE ? OR
+          f.factura LIKE ? OR
+          cli.nombre_cliente LIKE ? OR
+          cli.RFC_cliente LIKE ? OR
+          cat.clave_catalogo LIKE ? OR
+          cat.claveSSA_catalogo LIKE ? OR
+          cat.nombreProdu_catalogo LIKE ?
+        )
+      `);
+      for (let i = 0; i < 8; i++) params.push(like);
+    }
+
+    const whereClause = condiciones.length ? 'WHERE ' + condiciones.join(' AND ') : '';
+
+    const [facturas] = await db.query(`
+      SELECT
+        f.*,
+        cat.clave_catalogo,
+        cat.claveSSA_catalogo,
+        cat.nombreProdu_catalogo,
+        cli.nombre_cliente,
+        cli.RFC_cliente,
+        u.nombreCompleto AS nombre_usuario
+      FROM facturacion f
+      LEFT JOIN catalogo cat ON f.producto_fk = cat.id_catalogo
+      LEFT JOIN cliente cli ON f.cliente_fk = cli.id_cliente
+      LEFT JOIN usuario u ON f.usuario_fk = u.id_usuario
+      ${whereClause}
+      ORDER BY f.fecha DESC, f.numero_factura DESC
+    `, params);
+
+    // Adjuntos (los dejamos intactos)
+    const [adjRows] = await db.query(`
+      SELECT id_archivo, id_registro, nombre_original
+      FROM archivo_adjunto
+      WHERE modulo = 'facturacion'
+    `);
+
+    const adjuntosPorFactura = {};
+    for (const row of adjRows) {
+      if (!adjuntosPorFactura[row.id_registro]) {
+        adjuntosPorFactura[row.id_registro] = [];
+      }
+      adjuntosPorFactura[row.id_registro].push(row);
+    }
+
+    // Total del mes
+    let totalMes = 0;
+    if (usarFiltroFecha && mes && anio) {
+      const [[rowTotal]] = await db.query(`
+        SELECT SUM(monto) AS total
+        FROM facturacion
+        WHERE MONTH(fecha) = ? AND YEAR(fecha) = ?
+      `, [mes, anio]);
+
+      totalMes = rowTotal && rowTotal.total ? rowTotal.total : 0;
+    }
+
+    // Periodos para barra lateral
+    const [periodos] = await db.query(`
+      SELECT DISTINCT YEAR(fecha) AS anio, MONTH(fecha) AS mes
+      FROM facturacion
+      ORDER BY anio DESC, mes DESC
+    `);
+
+    const periodosPorAnio = {};
+    const listaAnios = [];
+
+    for (const fila of periodos) {
+      if (!periodosPorAnio[fila.anio]) {
+        periodosPorAnio[fila.anio] = [];
+        listaAnios.push(fila.anio);
+      }
+      periodosPorAnio[fila.anio].push(fila.mes);
+    }
+
+    // 🔹 Guardar filtros actuales en sesión para reutilizarlos en los POST
+    req.session.filtrosFacturacion = {
+      mes,
+      anio,
+      estado: filtroEstado,
+      q
+    };
+
+    res.render('facturacion', {
+      usuario: req.session.usuario,
+      facturas,
+      adjuntosPorFactura,
+      mesActual: mes,
+      anioActual: anio,
+      periodosPorAnio,
+      listaAnios,
+      totalMes,
+      q,
+      filtroEstado,
+      ruta: 'facturacion'
+    });
+  } catch (err) {
+    console.error('Error cargando facturación:', err);
+    res.send('Error cargando facturación');
+  }
+});
+
+// NUEVA FACTURA (GET)
+app.get('/facturacion/nueva', estaLogueado, soloAdminYFacturacion, async (req, res) => {
+  try {
+    const [productos] = await db.query(`
+      SELECT id_catalogo, clave_catalogo, claveSSA_catalogo, nombreProdu_catalogo
+      FROM catalogo
+      ORDER BY nombreProdu_catalogo
+    `);
+
+    const [clientes] = await db.query(`
+      SELECT id_cliente, nombre_cliente, RFC_cliente
+      FROM cliente
+      ORDER BY nombre_cliente
+    `);
+
+    const hoy = new Date().toISOString().slice(0, 10);
+    const seriePorDefecto = 'FD';
+
+    // Filtros actuales (para regresar al mismo periodo tras guardar)
+    const filtroMes    = req.query.mes    || '';
+    const filtroAnio   = req.query.anio   || '';
+    const filtroEstado = req.query.estado || '';
+    const filtroQ      = req.query.q      || '';
+
+    res.render('editar_facturacion', {
+      usuario: req.session.usuario,
+      productos,
+      clientes,
+      hoy,
+      seriePorDefecto,
+      editar: false,
+      factura: null,
+      error: null,
+      ruta: 'facturacion',
+      filtroMes,
+      filtroAnio,
+      filtroEstado,
+      filtroQ
+    });
+
+  } catch (err) {
+    console.error('Error cargando formulario de nueva factura:', err);
+    res.send('Error cargando formulario de nueva factura');
+  }
+});
+
+// EDITAR FACTURA (GET)
+app.get('/facturacion/editar/:id_factura', estaLogueado, soloAdminYFacturacion, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id_factura, 10);
+    if (isNaN(id)) {
+      return res.send('ID de factura inválido');
+    }
+
+    const [[factura]] = await db.query(`
+      SELECT *
+      FROM facturacion
+      WHERE id_factura = ?
+    `, [id]);
+
+    if (!factura) {
+      return res.send('Factura no encontrada');
+    }
+
+    const [productos] = await db.query(`
+      SELECT id_catalogo, clave_catalogo, claveSSA_catalogo, nombreProdu_catalogo
+      FROM catalogo
+      ORDER BY nombreProdu_catalogo
+    `);
+
+    const [clientes] = await db.query(`
+      SELECT id_cliente, nombre_cliente, RFC_cliente
+      FROM cliente
+      ORDER BY nombre_cliente
+    `);
+
+    const fechaIso = factura.fecha
+      ? (factura.fecha.toISOString ? factura.fecha.toISOString().slice(0, 10) : factura.fecha)
+      : '';
+
+    // Filtros actuales
+    const filtroMes    = req.query.mes    || '';
+    const filtroAnio   = req.query.anio   || '';
+    const filtroEstado = req.query.estado || '';
+    const filtroQ      = req.query.q      || '';
+
+    res.render('editar_facturacion', {
+      usuario: req.session.usuario,
+      productos,
+      clientes,
+      hoy: fechaIso,
+      seriePorDefecto: factura.serie_factura,
+      editar: true,
+      factura,
+      error: null,
+      ruta: 'facturacion',
+      filtroMes,
+      filtroAnio,
+      filtroEstado,
+      filtroQ
+    });
+  } catch (err) {
+    console.error('Error cargando edición de factura:', err);
+    res.send('Error cargando edición de factura');
+  }
+});
+
+// GUARDAR NUEVA FACTURA (POST)
+app.post('/facturacion/nueva', estaLogueado, soloAdminYFacturacion, async (req, res) => {
+  try {
+    let {
+      serie_factura,
+      numero_factura,
+      fecha,
+      producto_fk,
+      cliente_fk,
+      odc,
+      folio_fiscal,
+      monto,
+      estado,
+      marcado,
+      estatus_administrativo,
+      // filtros del listado (pueden venir vacíos)
+      filtro_mes,
+      filtro_anio,
+      filtro_estado,
+      filtro_q
+    } = req.body;
+
+    const usuario = req.session.usuario;
+
+    // 🔹 Si no vinieron filtros en el form, tomarlos de sesión (mantener filtros)
+    if (!filtro_mes && !filtro_anio && !filtro_estado && !filtro_q && req.session.filtrosFacturacion) {
+      const f = req.session.filtrosFacturacion;
+      filtro_mes    = f.mes    || '';
+      filtro_anio   = f.anio   || '';
+      filtro_estado = f.estado || '';
+      filtro_q      = f.q      || '';
+    }
+
+    // Limpia serie permitiendo que escriban "FD", "fd-22", etc.
+    let rawSerie = (serie_factura || 'FD').trim().toUpperCase();
+    const matchSerie = rawSerie.match(/^([A-ZÑ0-9]+?)(?:[-\s]*([0-9]+))?$/);
+    let serie = rawSerie;
+    let numeroEnSerie = null;
+    if (matchSerie) {
+      serie = matchSerie[1]; // texto antes del número
+      if (matchSerie[2]) {
+        numeroEnSerie = parseInt(matchSerie[2], 10);
+      }
+    }
+
+    if (!serie) throw new Error('La serie de la factura es obligatoria.');
+    if (!fecha) throw new Error('La fecha de la factura es obligatoria.');
+    if (!producto_fk) throw new Error('Debe seleccionarse un producto.');
+    if (!folio_fiscal) throw new Error('El folio fiscal es obligatorio.');
+
+    const estadoValido = ['pagado', 'pendiente', 'cancelado'].includes(estado)
+      ? estado
+      : 'pendiente';
+
+    const marcadoVal = marcado ? 1 : 0;
+
+    const estatusPermitidos = ['Aprobado', 'En proceso', 'Sin contra recibo', 'N/A'];
+    const estatusAdmVal = estatusPermitidos.includes(estatus_administrativo)
+      ? estatus_administrativo
+      : 'N/A';
+
+    const montoNum = parseFloat(monto || '0');
+    if (isNaN(montoNum) || montoNum <= 0) {
+      throw new Error('El monto debe ser un número mayor a 0.');
+    }
+
+    // Número de factura:
+    // 1) Si el usuario lo escribió, se respeta
+    // 2) Si lo dejó vacío pero la serie traía número (FD-23), usamos ese
+    // 3) Si no, buscamos consecutivo en BD
+    let numFact = parseInt(numero_factura, 10);
+    if (isNaN(numFact) || numFact < 0) {
+      if (numeroEnSerie !== null && !isNaN(numeroEnSerie)) {
+        numFact = numeroEnSerie;
+      } else {
+        const [rows] = await db.query(`
+          SELECT IFNULL(MAX(numero_factura), -1) AS max_num
+          FROM facturacion
+          WHERE serie_factura = ?
+        `, [serie]);
+        numFact = rows[0].max_num + 1;
+      }
+    }
+
+    const facturaTexto = `${serie}-${String(numFact).padStart(3, '0')}`;
+    const clienteFkFinal = cliente_fk ? parseInt(cliente_fk, 10) : null;
+
+    await db.query(`
+      INSERT INTO facturacion (
+        serie_factura,
+        numero_factura,
+        factura,
+        odc,
+        producto_fk,
+        folio_fiscal,
+        monto,
+        estado,
+        marcado,
+        estatus_administrativo,
+        fecha,
+        cliente_fk,
+        usuario_fk
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      serie,
+      numFact,
+      facturaTexto,
+      odc || null,
+      parseInt(producto_fk, 10),
+      folio_fiscal,
+      montoNum,
+      estadoValido,
+      marcadoVal,
+      estatusAdmVal,
+      fecha,
+      clienteFkFinal,
+      usuario ? usuario.id_usuario : null
+    ]);
+
+    // Armamos redirect conservando filtros (si existen)
+    let redirectUrl = '/facturacion';
+    const query = [];
+
+    if (filtro_mes)    query.push('mes='    + encodeURIComponent(filtro_mes));
+    if (filtro_anio)   query.push('anio='   + encodeURIComponent(filtro_anio));
+    if (filtro_estado) query.push('estado=' + encodeURIComponent(filtro_estado));
+    if (filtro_q)      query.push('q='      + encodeURIComponent(filtro_q));
+
+    // Si no venían filtros ni hay en sesión, usamos el mes/año de la fecha
+    if (query.length === 0 && fecha) {
+      const fechaObj = new Date(fecha);
+      const mes = fechaObj.getMonth() + 1;
+      const anio = fechaObj.getFullYear();
+      query.push('mes=' + encodeURIComponent(mes));
+      query.push('anio=' + encodeURIComponent(anio));
+    }
+
+    if (query.length > 0) {
+      redirectUrl += '?' + query.join('&');
+    }
+
+    res.redirect(redirectUrl);
+
+  } catch (err) {
+    console.error('Error guardando factura nueva:', err);
+    try {
+      const [productos] = await db.query(`
+        SELECT id_catalogo, clave_catalogo, claveSSA_catalogo, nombreProdu_catalogo
+        FROM catalogo
+        ORDER BY nombreProdu_catalogo
+      `);
+
+      const [clientes] = await db.query(`
+        SELECT id_cliente, nombre_cliente, RFC_cliente
+        FROM cliente
+        ORDER BY nombre_cliente
+      `);
+
+      const hoy = req.body.fecha || new Date().toISOString().slice(0, 10);
+      const seriePorDefecto = req.body.serie_factura || 'FD';
+
+      res.render('editar_facturacion', {
+        usuario: req.session.usuario,
+        productos,
+        clientes,
+        hoy,
+        seriePorDefecto,
+        editar: false,
+        factura: null,
+        error: err.message || 'Error al guardar la factura',
+        ruta: 'facturacion',
+        filtroMes:    req.body.filtro_mes    || '',
+        filtroAnio:   req.body.filtro_anio   || '',
+        filtroEstado: req.body.filtro_estado || '',
+        filtroQ:      req.body.filtro_q      || ''
+      });
+    } catch (err2) {
+      console.error('Error cargando formulario tras fallo de guardado:', err2);
+      res.send('Error al guardar la factura');
+    }
+  }
+});
+
+// GUARDAR EDICIÓN DE FACTURA (POST)
+app.post('/facturacion/editar/:id_factura', estaLogueado, soloAdminYFacturacion, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id_factura, 10);
+    if (isNaN(id)) throw new Error('ID de factura inválido.');
+
+    let {
+      serie_factura,
+      numero_factura,
+      fecha,
+      producto_fk,
+      cliente_fk,
+      odc,
+      folio_fiscal,
+      monto,
+      estado,
+      marcado,
+      estatus_administrativo,
+      // filtros del listado (pueden venir vacíos)
+      filtro_mes,
+      filtro_anio,
+      filtro_estado,
+      filtro_q
+    } = req.body;
+
+    // 🔹 Si no vinieron filtros en el form, tomarlos de sesión (mantener filtros)
+    if (!filtro_mes && !filtro_anio && !filtro_estado && !filtro_q && req.session.filtrosFacturacion) {
+      const f = req.session.filtrosFacturacion;
+      filtro_mes    = f.mes    || '';
+      filtro_anio   = f.anio   || '';
+      filtro_estado = f.estado || '';
+      filtro_q      = f.q      || '';
+    }
+
+    if (!serie_factura) throw new Error('La serie de la factura es obligatoria.');
+    if (!fecha)         throw new Error('La fecha de la factura es obligatoria.');
+    if (!producto_fk)   throw new Error('Debe seleccionarse un producto.');
+    if (!folio_fiscal)  throw new Error('El folio fiscal es obligatorio.');
+
+    const estadoValido = ['pagado', 'pendiente', 'cancelado'].includes(estado)
+      ? estado
+      : 'pendiente';
+
+    const marcadoVal = marcado ? 1 : 0;
+
+    const estatusPermitidos = ['Aprobado', 'En proceso', 'Sin contra recibo', 'N/A'];
+    const estatusAdmVal = estatusPermitidos.includes(estatus_administrativo)
+      ? estatus_administrativo
+      : 'N/A';
+
+    const montoNum = parseFloat(monto || '0');
+    if (isNaN(montoNum) || montoNum <= 0) {
+      throw new Error('El monto debe ser un número mayor a 0.');
+    }
+
+    let numFact = parseInt(numero_factura, 10);
+    if (isNaN(numFact)) throw new Error('Número de factura inválido.');
+
+    // Limpieza de serie básica (quitando número si escriben "FD-22")
+    let rawSerie = (serie_factura || '').trim().toUpperCase();
+    const matchSerie = rawSerie.match(/^([A-ZÑ0-9]+?)(?:[-\s]*[0-9]+)?$/);
+    let serie = rawSerie;
+    if (matchSerie) {
+      serie = matchSerie[1];
+    }
+
+    const facturaTexto = `${serie}-${String(numFact).padStart(3, '0')}`;
+    const clienteFkFinal = cliente_fk ? parseInt(cliente_fk, 10) : null;
+
+    await db.query(`
+      UPDATE facturacion
+      SET
+        serie_factura          = ?,
+        numero_factura         = ?,
+        factura                = ?,
+        odc                    = ?,
+        producto_fk            = ?,
+        folio_fiscal           = ?,
+        monto                  = ?,
+        estado                 = ?,
+        marcado                = ?,
+        estatus_administrativo = ?,
+        fecha                  = ?,
+        cliente_fk             = ?
+      WHERE id_factura = ?
+    `, [
+      serie,
+      numFact,
+      facturaTexto,
+      odc || null,
+      parseInt(producto_fk, 10),
+      folio_fiscal,
+      montoNum,
+      estadoValido,
+      marcadoVal,
+      estatusAdmVal,
+      fecha,
+      clienteFkFinal,
+      id
+    ]);
+
+    // Redirección conservando filtros
+    let redirectUrl = '/facturacion';
+    const query = [];
+
+    if (filtro_mes)    query.push('mes='    + encodeURIComponent(filtro_mes));
+    if (filtro_anio)   query.push('anio='   + encodeURIComponent(filtro_anio));
+    if (filtro_estado) query.push('estado=' + encodeURIComponent(filtro_estado));
+    if (filtro_q)      query.push('q='      + encodeURIComponent(filtro_q));
+
+    if (query.length === 0 && fecha) {
+      const fechaObj = new Date(fecha);
+      const mes = fechaObj.getMonth() + 1;
+      const anio = fechaObj.getFullYear();
+      query.push('mes=' + encodeURIComponent(mes));
+      query.push('anio=' + encodeURIComponent(anio));
+    }
+
+    if (query.length > 0) {
+      redirectUrl += '?' + query.join('&');
+    }
+
+    res.redirect(redirectUrl);
+
+  } catch (err) {
+    console.error('Error actualizando factura:', err);
+    try {
+      const id = parseInt(req.params.id_factura, 10);
+
+      const [[factura]] = await db.query(`
+        SELECT *
+        FROM facturacion
+        WHERE id_factura = ?
+      `, [id]);
+
+      const [productos] = await db.query(`
+        SELECT id_catalogo, clave_catalogo, claveSSA_catalogo, nombreProdu_catalogo
+        FROM catalogo
+        ORDER BY nombreProdu_catalogo
+      `);
+
+      const [clientes] = await db.query(`
+        SELECT id_cliente, nombre_cliente, RFC_cliente
+        FROM cliente
+        ORDER BY nombre_cliente
+      `);
+
+      const fechaIso = req.body.fecha || (factura.fecha
+        ? (factura.fecha.toISOString ? factura.fecha.toISOString().slice(0, 10) : factura.fecha)
+        : '');
+
+      res.render('editar_facturacion', {
+        usuario: req.session.usuario,
+        productos,
+        clientes,
+        hoy: fechaIso,
+        seriePorDefecto: req.body.serie_factura || factura.serie_factura,
+        editar: true,
+        factura,
+        error: err.message || 'Error al actualizar la factura',
+        ruta: 'facturacion',
+        filtroMes:    req.body.filtro_mes    || '',
+        filtroAnio:   req.body.filtro_anio   || '',
+        filtroEstado: req.body.filtro_estado || '',
+        filtroQ:      req.body.filtro_q      || ''
+      });
+    } catch (err2) {
+      console.error('Error recargando formulario de edición:', err2);
+      res.send('Error al actualizar la factura');
+    }
+  }
+});
+  
+
 
 /* Alias útiles */
 app.get('/cotizacion/nueva', (req, res) => res.redirect(302, '/cotizaciones/nueva'));

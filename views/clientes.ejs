@@ -10,73 +10,112 @@
 
 <body>
   <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
+
+  <%
+    const tipo = usuario ? usuario.tipo_usuario : null;
+
+    const esAdmin       = (tipo === 'administrador');
+    const esEmpleado    = (tipo === 'empleado');
+    const esAlmacen     = (tipo === 'almacen');
+    const esRH          = (tipo === 'recursos_humanos');
+    const esFact        = (tipo === 'facturacion');
+    const esCliente     = (tipo === 'cliente');
+    const esDesempleado = (tipo === 'desempleado');
+    const esCotizacion  = (tipo === 'cotizacion');
+
+    // 👇 Solo Admin + Almacén pueden AGREGAR / EDITAR / ELIMINAR clientes
+    const puedeGestionarClientes = esAdmin || esAlmacen;
+  %>
+
+  <!-- NAVBAR -->
   <div class="nav">
     <a href="/catalogo">Catálogo</a>
-    <a href="/entradas">Entradas</a>
-    <a href="/inventario">Inventario</a>
-    <a href="/salidas">Salidas</a>
-    <a href="/clientes" class="active">Clientes</a>
-    <a href="/cotizaciones">Cotizaciones</a>
 
+    <% if (!esCliente && !esDesempleado) { %>
+      <a href="/entradas">Entradas</a>
+      <a href="/inventario">Inventario</a>
+      <a href="/salidas">Salidas</a>
+      <a href="/clientes" class="active">Clientes</a>
+      <a href="/cotizaciones">Cotizaciones</a>
+    <% } else if (esCliente) { %>
+      <!-- Cliente: solo Catálogo e Inventario -->
+      <a href="/inventario">Inventario</a>
+    <% } %>
 
-    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
-      <a href="/usuarios">Usuarios</a> <!-- Solo visible para administradores -->
-      <% } %>
+    <!-- Facturación solo Admin y Facturación -->
+    <% if (esAdmin || esFact) { %>
+      <a href="/facturacion">Facturación</a>
+    <% } %>
 
+    <!-- Usuarios solo Admin y RH -->
+    <% if (esAdmin || esRH) { %>
+      <a href="/usuarios">Usuarios</a>
+    <% } %>
   </div>
 
   <!-- CONTENEDOR PRINCIPAL -->
   <main class="contenedor">
     <h2>Listado de Clientes</h2>
-    <a href="/clientes/nuevo" class="btn"> Agregar Cliente</a>
 
-    <table>
-      <thead>
-        <tr>
-          <th>Nombre</th>
-          <th>RFC</th>
-          <th>Dirección</th>
-          <th>Teléfono</th>
-          <th>Correo</th>
-          <th>Acciones</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% clientes.forEach(c=> { %>
+    <% if (esDesempleado || esCliente) { %>
+      <p style="text-align:center; margin-top:2rem; opacity:.7%;">
+        No tienes permisos para ver el listado de clientes.
+      </p>
+    <% } else { %>
+
+      <!-- Botón Agregar Cliente: solo Admin + Almacén -->
+      <% if (puedeGestionarClientes) { %>
+        <a href="/clientes/nuevo" class="btn">Agregar Cliente</a>
+      <% } %>
+
+      <table>
+        <thead>
           <tr>
-            <td>
-              <%= c.Nombre %>
-            </td>
-            <td>
-              <%= c.RFC %>
-            </td>
-            <td>
-              <%= c.Direccion %>
-            </td>
-            <td>
-              <%= c.Telefono %>
-            </td>
-            <td>
-              <%= c.Correo %>
-            </td>
-            <td>
-              <!-- Botones alineados y separados -->
-              <div style="display:flex; gap:1rem; justify-content:center;">
-                <a href="/clientes/editar/<%= c.Id %>" class="btn btn-secundario">Editar</a>
-                <form action="/clientes/eliminar/<%= c.Id %>" method="POST" style="margin:0;"
-                  onsubmit="return confirm('¿Seguro que deseas eliminar este cliente? Esta acción también eliminará sus salidas relacionadas.');">
-                  <button type="submit" class="btn btn-danger">Eliminar</button>
-                </form>
-              </div>
-            </td>
+            <th>Nombre</th>
+            <th>RFC</th>
+            <th>Dirección</th>
+            <th>Teléfono</th>
+            <th>Correo</th>
+            <th>Acciones</th>
           </tr>
-          <% }) %>
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          <% if (!clientes || clientes.length === 0) { %>
+            <tr>
+              <td colspan="6" style="text-align:center; opacity:.7%;">No hay clientes registrados</td>
+            </tr>
+          <% } else { %>
+            <% clientes.forEach(c => { %>
+              <tr>
+                <td><%= c.Nombre %></td>
+                <td><%= c.RFC %></td>
+                <td><%= c.Direccion %></td>
+                <td><%= c.Telefono %></td>
+                <td><%= c.Correo %></td>
+                <td>
+                  <% if (puedeGestionarClientes) { %>
+                    <div style="display:flex; gap:1rem; justify-content:center;">
+                      <a href="/clientes/editar/<%= c.Id %>" class="btn btn-secundario">Editar</a>
+                      <form
+                        action="/clientes/eliminar/<%= c.Id %>"
+                        method="POST"
+                        style="margin:0;"
+                        onsubmit="return confirm('¿Seguro que deseas eliminar este cliente? Esta acción también puede afectar sus salidas relacionadas.');">
+                        <button type="submit" class="btn btn-danger">Eliminar</button>
+                      </form>
+                    </div>
+                  <% } else { %>
+                    <span style="color: gray;">Solo lectura</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }); %>
+          <% } %>
+        </tbody>
+      </table>
+    <% } %>
   </main>
-</body>
-<form action="/logout" method="get">
-  <a href="/logout" class="btn-logout">Cerrar sesión</a>
-</form>
 
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
+</body>
 </html>

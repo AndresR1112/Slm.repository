@@ -14,14 +14,16 @@
         <div class="login-container" style="width: 100%; max-width: 400px;">
             <h1>Acceso al sistema</h1>
 
-            <% if (typeof error !== 'undefined' && error) { %>
+            <% if (error) { %>
                 <p style="color: red; text-align: center;"><%= error %></p>
-                <script>
-                    console.log("🚨 Error recibido desde el servidor:", "<%= error %>");
-                </script>
             <% } %>
 
-            <form action="/login" method="POST" onsubmit="logLoginData(event)">
+            <!-- Mensaje informativo opcional -->
+            <p style="text-align:center; color:#555; font-size:0.9rem; margin-bottom:1rem;">
+                Ahora las contraseñas se guardan de forma segura 🔒
+            </p>
+
+            <form action="/login" method="POST">
                 <div class="coolinput">
                     <label for="usuario" class="text">Usuario</label>
                     <input type="text" name="usuario" id="usuario" class="input" required>

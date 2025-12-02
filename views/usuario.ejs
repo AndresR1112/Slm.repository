@@ -9,98 +9,230 @@
 </head>
 
 <body>
+  <%
+    // Normalizar tipo de usuario
+    const tipoRaw  = (usuario && usuario.tipo_usuario) ? usuario.tipo_usuario : '';
+    const tipoNorm = tipoRaw.toString().trim().toLowerCase().replace(/\s+/g, '_');
+
+    const esAdmin       = (tipoNorm === 'administrador');
+    const esEmpleado    = (tipoNorm === 'empleado');
+    const esAlmacen     = (tipoNorm === 'almacen');
+    const esRH          = (tipoNorm === 'recursos_humanos');
+    const esFact        = (tipoNorm === 'facturacion');
+    const esCliente     = (tipoNorm === 'cliente');
+    const esDesempleado = (tipoNorm === 'desempleado');
+    const esCotizacion  = (tipoNorm === 'cotizacion');
+
+    // Permiso para ver módulo de usuarios (Cotizacion NO debe ver)
+    const puedeVerUsuarios = esAdmin || esRH;
+  %>
+
   <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
+
+  <!-- NAVBAR -->
   <div class="nav">
     <a href="/catalogo">Catálogo</a>
-    <a href="/entradas">Entradas</a>
-    <a href="/inventario">Inventario</a>
-    <a href="/salidas">Salidas</a>
-    <a href="/clientes">Clientes</a>
-    <a href="/cotizaciones">Cotizaciones</a>
 
+    <% if (esCliente) { %>
+      <a href="/inventario">Inventario</a>
+    <% } else if (!esDesempleado) { %>
+      <a href="/entradas">Entradas</a>
+      <a href="/inventario">Inventario</a>
+      <a href="/salidas">Salidas</a>
+      <a href="/clientes">Clientes</a>
+      <a href="/cotizaciones">Cotizaciones</a>
+    <% } %>
 
-    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
-      <a href="/usuarios" class="active">Usuarios</a> <!-- Solo visible para administradores -->
-      <% } %>
+    <% if (esAdmin || esFact) { %>
+      <a href="/facturacion">Facturación</a>
+    <% } %>
 
+    <% if (esAdmin || esRH) { %>
+      <a href="/usuarios" class="active">Usuarios</a>
+    <% } %>
   </div>
 
-  <!-- Contenido principal -->
-  <main class="contenedor" style="padding: 2rem; max-width: 2000px; margin:auto;">
+  <% if (!puedeVerUsuarios) { %>
+    <main class="contenedor">
+      <h2>Usuarios</h2>
+      <p style="text-align:center; margin-top:2rem; opacity:.7%;">
+        No tienes permisos para ver el módulo de usuarios.
+      </p>
+    </main>
+  <% } else { %>
+
+  <main class="contenedor">
     <h2>Lista de Usuarios</h2>
 
-    <!-- Botón para añadir un nuevo usuario -->
-    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
+    <% if (esAdmin) { %>
       <div style="margin-bottom: 1rem;">
         <a href="/usuarios/nuevo" class="btn btn-exito">Nuevo Usuario</a>
       </div>
-      <% } %>
+    <% } %>
 
-        <!-- Tabla de usuarios -->
-        <table border="1" cellpadding="10" cellspacing="0"
-          style="width:100%; background: white; border-radius: 10px; border-collapse: collapse;">
-          <thead>
-            <tr style="background-color:#f5f5f5;">
-              <th>ID</th>
-              <th>Usuario</th>
-              <th>Nombre completo</th>
-              <th>Tipo</th>
-              <th>Teléfono</th>
-              <th>Correo</th>
-              <th>Fecha de registro</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
+    <table>
+      <thead>
+        <tr>
+          <th>Usuario</th>
+          <th>Nombre completo</th>
+          <th>Tipo</th>
+          <th>Teléfono</th>
+          <th>Correo</th>
+          <th>Fecha de registro</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
 
-          <tbody>
-            <% if (usuarios && usuarios.length> 0) { %>
-              <% usuarios.forEach(u=> { %>
-                <tr>
-                  <td>
-                    <%= u.id_usuario %>
-                  </td>
-                  <td>
-                    <%= u.userName %>
-                  </td>
-                  <td>
-                    <%= u.nombreCompleto %>
-                  </td>
-                  <td>
-                    <%= u.tipo_usuario %>
-                  </td>
-                  <td>
-                    <%= u.telefono_usuario %>
-                  </td>
-                  <td>
-                    <%= u.correo_usuario %>
-                  </td>
-                  <td>
-                    <%= u.fechaRegistro_usuario ? new Date(u.fechaRegistro_usuario).toLocaleDateString('es-MX') : '' %>
-                  </td>
-                  <td>
-                    <% if (usuario && usuario.tipo_usuario==='administrador' ) { %>
-                      <a href="/usuarios/editar/<%= u.id_usuario %>" class="btn btn-secundario">Editar</a>
-                      <form action="/usuarios/eliminar/<%= u.id_usuario %>" method="POST" style="display:inline;"
-                        onsubmit="return confirm('¿Seguro que deseas eliminar este usuario? Esta acción no se puede deshacer.');">
-                        <button type="submit" class="btn btn-danger">Eliminar</button>
-                      </form>
-                      <% } else { %>
-                        <span style="color: gray;">Sin permisos</span>
-                        <% } %>
-                  </td>
-                </tr>
-                <% }) %>
-                  <% } else { %>
-                    <tr>
-                      <td colspan="8" style="text-align: center;">No hay usuarios registrados</td>
-                    </tr>
+      <tbody>
+        <% if (usuarios && usuarios.length > 0) { %>
+          <% usuarios.forEach(function (u) { %>
+            <tr>
+              <td><%= u.userName %></td>
+              <td><%= u.nombreCompleto %></td>
+              <td><%= u.tipo_usuario %></td>
+              <td><%= u.telefono_usuario %></td>
+              <td><%= u.correo_usuario %></td>
+              <td><%= u.fechaRegistro_usuario ? new Date(u.fechaRegistro_usuario).toLocaleDateString('es-MX') : '' %></td>
+
+              <td class="col-acciones">
+
+                <%
+                  var adj = [];
+                  if (typeof adjuntosPorUsuario !== 'undefined' && adjuntosPorUsuario[u.id_usuario]) {
+                    adj = adjuntosPorUsuario[u.id_usuario];
+                  }
+
+                  var headerParts = [];
+                  if (u.nombreCompleto) headerParts.push(u.nombreCompleto);
+                  if (u.userName) headerParts.push('(' + u.userName + ')');
+                  var headerTexto = headerParts.join(' ');
+                %>
+
+                <div style="display:flex; gap:1rem; justify-content:center; align-items:center;">
+
+                  <% if (esAdmin) { %>
+                    <a href="/usuarios/editar/<%= u.id_usuario %>" class="btn btn-secundario">Editar</a>
+
+                    <form action="/usuarios/eliminar/<%= u.id_usuario %>" 
+                          method="POST" 
+                          style="margin:0;"
+                          onsubmit="return confirm('¿Seguro que deseas eliminar este usuario? Esta acción no se puede deshacer.');">
+                      <button type="submit" class="btn btn-danger">Eliminar</button>
+                    </form>
+                  <% } %>
+
+                  <% if (esAdmin || esRH) { %>
+                    <button type="button"
+                            class="btn btn3 btn-archivos"
+                            data-id="<%= u.id_usuario %>"
+                            data-header="<%= headerTexto %>"
+                            onclick="abrirAdjuntos(<%= u.id_usuario %>)">
+                      Archivos<%= (adj && adj.length > 0) ? ' (' + adj.length + ')' : '' %>
+                    </button>
+                  <% } %>
+
+                </div>
+
+                <% if (esAdmin || esRH) { %>
+                  <div id="archivos-template-<%= u.id_usuario %>" class="archivos-template" style="display:none;">
+
+                    <% if (!adj || adj.length === 0) { %>
+                      <p class="archivos-vacio">No hay archivos adjuntos.</p>
+                    <% } else { %>
+                      <ul class="archivos-lista">
+                        <% adj.forEach(function(a){ %>
+                          <li class="archivos-item">
+                            <a href="/adjuntos/descargar/<%= a.id_archivo %>"
+                               class="archivo-nombre"
+                               title="<%= a.nombre_original %>">
+                              <%= a.nombre_original %>
+                            </a>
+
+                            <form action="/adjuntos/eliminar/<%= a.id_archivo %>" 
+                                  method="POST"
+                                  onsubmit="return confirm('¿Eliminar este archivo?');"
+                                  class="form-borrar-adjunto">
+                              <button type="submit" class="btn-borrar-adjunto">Eliminar</button>
+                            </form>
+                          </li>
+                        <% }); %>
+                      </ul>
                     <% } %>
-          </tbody>
-        </table>
-  </main>
-</body>
-<form action="/logout" method="get">
-  <a href="/logout" class="btn-logout">Cerrar sesión</a>
-</form>
 
+                    <form action="/adjuntos/subir/usuarios/<%= u.id_usuario %>" 
+                          method="POST"
+                          enctype="multipart/form-data"
+                          class="form-adjuntos-menu">
+                      <label>Agregar archivos:</label>
+                      <input type="file" name="archivos" multiple>
+                      <button type="submit" class="btn btn-sm">Subir</button>
+                    </form>
+
+                  </div>
+                <% } %>
+
+              </td>
+            </tr>
+          <% }); %>
+
+        <% } else { %>
+          <tr>
+            <td colspan="8" style="text-align:center;">No hay usuarios registrados</td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
+  </main>
+
+  <% } %>
+
+  <!-- Panel lateral de archivos -->
+  <div id="adjuntosOverlay" class="adj-overlay">
+    <div class="adj-panel">
+      <div class="adj-header">
+        <h3 id="adj-header-text">Archivos del usuario</h3>
+        <button type="button" class="adj-close" onclick="cerrarAdjuntos()">✖</button>
+      </div>
+      <div id="adj-body" class="adj-body"></div>
+    </div>
+  </div>
+
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
+
+  <script>
+    function abrirAdjuntos(id) {
+      var tpl = document.getElementById('archivos-template-' + id);
+      if (!tpl) return;
+
+      var overlay = document.getElementById('adjuntosOverlay');
+      var headerEl = document.getElementById('adj-header-text');
+      var bodyEl = document.getElementById('adj-body');
+
+      var btn = document.querySelector('.btn-archivos[data-id="' + id + '"]');
+      if (btn && btn.dataset.header) {
+        headerEl.textContent = btn.dataset.header;
+      } else {
+        headerEl.textContent = 'Archivos del usuario';
+      }
+
+      bodyEl.innerHTML = tpl.innerHTML;
+      overlay.classList.add('activo');
+    }
+
+    function cerrarAdjuntos() {
+      document.getElementById('adjuntosOverlay').classList.remove('activo');
+    }
+
+    document.addEventListener('click', function(e){
+      var overlay = document.getElementById('adjuntosOverlay');
+      if (!overlay || !overlay.classList.contains('activo')) return;
+
+      var dentro = e.target.closest('.adj-panel');
+      var boton = e.target.closest('.btn-archivos');
+
+      if (!dentro && !boton) cerrarAdjuntos();
+    });
+  </script>
+
+</body>
 </html>

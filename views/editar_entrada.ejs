@@ -36,15 +36,24 @@
         required
       />
 
-      <!-- Producto -->
+      <!-- PRODUCTO -->
       <label for="Producto">Producto:</label>
+
+      <!-- botones de ordenamiento -->
+      <div class="orden-productos">
+        <button type="button" id="ordenClave" class="btn btn3">Clave ↑/↓</button>
+        <button type="button" id="ordenNombre" class="btn btn3">Nombre A–Z</button>
+      </div>
+
       <select name="Producto" id="Producto" required>
         <option value="">-- Selecciona un producto --</option>
         <% productos.forEach(p => { %>
           <option
             value="<%= p.id_catalogo %>"
+            data-clave="<%= p.clave_catalogo %>"
+            data-nombre="<%= p.nombreProdu_catalogo %>"
             <%= Number(entrada.ProductoId) === Number(p.id_catalogo) ? 'selected' : '' %>>
-            <%= p.nombreProdu_catalogo %> (<%= p.clave_catalogo %>)
+            (<%= p.clave_catalogo %>) <%= p.nombreProdu_catalogo %>
           </option>
         <% }) %>
       </select>
@@ -101,5 +110,48 @@
       </div>
     </form>
   </main>
+
+  <!-- script ordenamiento dinámico -->
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const select = document.getElementById("Producto");
+      const btnClave = document.getElementById("ordenClave");
+      const btnNombre = document.getElementById("ordenNombre");
+
+      if (!select || !btnClave || !btnNombre) return;
+
+      const opcionesOriginales = Array.from(select.querySelectorAll("option"));
+      let ascClave = true;
+
+      btnClave.addEventListener("click", () => {
+        const opciones = opcionesOriginales.slice(1);
+        opciones.sort((a, b) => {
+          const ca = a.dataset.clave || "";
+          const cb = b.dataset.clave || "";
+          return ascClave
+            ? ca.localeCompare(cb, "es", { numeric: true })
+            : cb.localeCompare(ca, "es", { numeric: true });
+        });
+        ascClave = !ascClave;
+        actualizar(opciones);
+      });
+
+      btnNombre.addEventListener("click", () => {
+        const opciones = opcionesOriginales.slice(1);
+        opciones.sort((a, b) =>
+          (a.dataset.nombre || "").localeCompare(b.dataset.nombre || "", "es")
+        );
+        actualizar(opciones);
+      });
+
+      function actualizar(lista) {
+        const sel = select.value;
+        select.innerHTML = "";
+        select.appendChild(opcionesOriginales[0]); // "--Selecciona--"
+        lista.forEach(o => select.appendChild(o));
+        select.value = sel;
+      }
+    });
+  </script>
 </body>
 </html>

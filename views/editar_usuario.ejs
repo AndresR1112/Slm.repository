@@ -21,92 +21,114 @@
       <p style="color: red; background: #ffecec; padding: 0.5rem 1rem; border-radius: 5px;">
         <%= error %>
       </p>
-      <% } %>
+    <% } %>
 
-        <form action="<%= editar ? '/usuarios/editar/' + usuarioData.id_usuario : '/usuarios/nuevo' %>" method="POST"
+    <form action="<%= editar ? '/usuarios/editar/' + usuarioData.id_usuario : '/usuarios/nuevo' %>"
+          method="POST"
           style="display:flex; flex-direction: column; gap: 1rem; background-color: white; padding: 2rem; border-radius: 10px;">
 
-          <label>
-            Usuario:
-            <input type="text" name="userName" class="input" required placeholder="Ingresa tu usuario"
-              value="<%= usuarioData ? usuarioData.userName || '' : '' %>">
-          </label>
+      <label>
+        Usuario:
+        <input type="text" name="userName" class="input" required placeholder="Ingresa tu usuario"
+               value="<%= usuarioData ? usuarioData.userName || '' : '' %>">
+      </label>
 
-          <label>
-            Nombre completo:
-            <input type="text" name="nombreCompleto" class="input" required placeholder="Nombre y apellidos"
-              value="<%= usuarioData ? usuarioData.nombreCompleto || '' : '' %>">
-          </label>
+      <label>
+        Nombre completo:
+        <input type="text" name="nombreCompleto" class="input" required placeholder="Nombre y apellidos"
+               value="<%= usuarioData ? usuarioData.nombreCompleto || '' : '' %>">
+      </label>
 
-          <label>
-            Tipo de usuario:
-            <select name="tipo_usuario" class="input" required>
-              <option value="">Selecciona un tipo</option>
+      <label>
+        Tipo de usuario:
+        <select name="tipo_usuario" class="input" required>
+          <option value="">Selecciona un tipo</option>
 
-              <option value="administrador" <%=usuarioData && usuarioData.tipo_usuario==='administrador' ? 'selected'
-                : '' %>>
-                Administrador
-              </option>
+          <option value="administrador"
+            <%= usuarioData && usuarioData.tipo_usuario==='administrador' ? 'selected' : '' %>>
+            Administrador
+          </option>
 
-              <option value="empleado" <%=usuarioData && usuarioData.tipo_usuario==='empleado' ? 'selected' : '' %>>
-                Empleado
-              </option>
+          <option value="empleado"
+            <%= usuarioData && usuarioData.tipo_usuario==='empleado' ? 'selected' : '' %>>
+            Empleado
+          </option>
 
-              <!-- 🔽 NUEVOS TIPOS AGREGADOS (sin cambiar nada más) -->
+          <!-- 🔵 Nuevo tipo de usuario: COTIZACIÓN -->
+          <option value="cotizacion"
+            <%= usuarioData && usuarioData.tipo_usuario==='cotizacion' ? 'selected' : '' %>>
+            Cotización
+          </option>
 
-              <option value="desempleado" <%=usuarioData && usuarioData.tipo_usuario==='desempleado' ? 'selected' : ''
-                %>>
-                Desempleado
-              </option>
+          <option value="desempleado"
+            <%= usuarioData && usuarioData.tipo_usuario==='desempleado' ? 'selected' : '' %>>
+            Desempleado
+          </option>
 
-              <option value="cliente" <%=usuarioData && usuarioData.tipo_usuario==='cliente' ? 'selected' : '' %>>
-                Cliente
-              </option>
+          <option value="cliente"
+            <%= usuarioData && usuarioData.tipo_usuario==='cliente' ? 'selected' : '' %>>
+            Cliente
+          </option>
 
-              <option value="almacen" <%=usuarioData && usuarioData.tipo_usuario==='almacen' ? 'selected' : '' %>>
-                Almacén
-              </option>
+          <option value="almacen"
+            <%= usuarioData && usuarioData.tipo_usuario==='almacen' ? 'selected' : '' %>>
+            Almacén
+          </option>
 
-              <option value="facturacion" <%=usuarioData && usuarioData.tipo_usuario==='facturacion' ? 'selected' : ''
-                %>>
-                Facturación
-              </option>
+          <option value="facturacion"
+            <%= usuarioData && usuarioData.tipo_usuario==='facturacion' ? 'selected' : '' %>>
+            Facturación
+          </option>
 
-            </select>
-          </label>
-          <label>
-            Teléfono:
-            <input type="text" name="telefono_usuario" class="input" maxlength="10" required placeholder="Teléfono"
-              value="<%= usuarioData ? usuarioData.telefono_usuario || '' : '' %>">
-          </label>
+          <option value="recursos_humanos"
+            <%= usuarioData && usuarioData.tipo_usuario==='recursos_humanos' ? 'selected' : '' %>>
+            Recursos humanos
+          </option>
 
-          <label>
-            Correo:
-            <input type="email" name="correo_usuario" class="input" required placeholder="Correo electrónico"
-              value="<%= usuarioData ? usuarioData.correo_usuario || '' : '' %>">
-          </label>
+        </select>
+      </label>
 
-          <label>
-            Contraseña:
-            <input type="password" name="contraseña_usuario" class="input" required placeholder="Contraseña"
-              value="<%= usuarioData ? usuarioData.contraseña_usuario || '' : '' %>">
-          </label>
+      <label>
+        Teléfono:
+        <input type="text" name="telefono_usuario" class="input" maxlength="10" required placeholder="Teléfono"
+               value="<%= usuarioData ? usuarioData.telefono_usuario || '' : '' %>">
+      </label>
 
-          <div style="display:flex; gap: 1rem; flex-wrap: wrap;">
-            <button type="submit" class="btn btn-exito">
-              <%= editar ? 'Actualizar Usuario' : 'Añadir Usuario' %>
-            </button>
+      <label>
+        Correo:
+        <input type="email" name="correo_usuario" class="input" required placeholder="Correo electrónico"
+               value="<%= usuarioData ? usuarioData.correo_usuario || '' : '' %>">
+      </label>
 
-            <a href="/usuarios" class="btn btn-secundario">Cancelar</a>
+      <label>
+        Contraseña:
+        <input
+          type="password"
+          name="contraseña_usuario"
+          class="input"
+          placeholder="Contraseña"
+          <%= editar ? '' : 'required' %>
+        >
+      </label>
 
-            <% if (editar) { %>
-              <form action="/usuarios/eliminar/<%= usuarioData.id_usuario %>" method="POST" style="display:inline;"
+      <div style="display:flex; gap: 1rem; flex-wrap: wrap;">
+        <button type="submit" class="btn btn-exito">
+          <%= editar ? 'Actualizar Usuario' : 'Añadir Usuario' %>
+        </button>
+
+        <a href="/usuarios" class="btn btn-secundario">Cancelar</a>
+
+        <% if (editar) { %>
+          <form action="/usuarios/eliminar/<%= usuarioData.id_usuario %>"
+                method="POST"
+                style="display:inline;"
                 onsubmit="return confirm('¿Eliminar este usuario?');">
-              </form>
-              <% } %>
-          </div>
-        </form>
-  </main>
-</body>
+          </form>
+        <% } %>
+      </div>
 
+    </form>
+  </main>
+
+</body>
 </html>

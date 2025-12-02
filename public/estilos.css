@@ -153,8 +153,8 @@ form label {
   color: #333;
 }
 
-form input, 
-form select, 
+form input,
+form select,
 form textarea {
   padding: 0.6rem;
   border-radius: 6px;
@@ -164,8 +164,8 @@ form textarea {
   background-color: #fdfdfd;
 }
 
-form input:focus, 
-form select:focus, 
+form input:focus,
+form select:focus,
 form textarea:focus {
   border-color: #4c6ca0;
   box-shadow: 0 0 5px rgba(76, 108, 160, 0.5);
@@ -222,7 +222,6 @@ h2 {
 
 /* Tablets y móviles */
 @media (max-width: 768px) {
-  /* Navbar vertical */
   .nav {
     flex-direction: column;
   }
@@ -286,3 +285,379 @@ h2 {
   }
 }
 
+/* ====== FACTURACIÓN: LAYOUT PRINCIPAL ====== */
+
+.facturacion-layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  position: relative;
+}
+
+.facturacion-main {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.facturacion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.facturacion-busqueda {
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.facturacion-busqueda .campo-busqueda {
+  flex: 1 1 260px;
+  min-width: 220px;
+}
+
+/* Formularios en línea (sobrescriben el form general) */
+.form-inline {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+/* ====== Filtros desplegables: menú lateral derecho ====== */
+
+.filtros-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.25);
+  display: none;
+  justify-content: flex-end;
+  align-items: stretch;
+  z-index: 1000;
+}
+
+.filtros-overlay.activo {
+  display: flex;
+}
+
+.filtros-panel {
+  width: 320px;
+  max-width: 90vw;
+  background-color: #ffffff;
+  height: 100%;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+  border-top-left-radius: 10px;
+  border-bottom-left-radius: 10px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.filtros-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.filtros-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #4c6ca0;
+}
+
+.form-filtros {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.form-filtros .fila {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-filtros .botones {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Enfoque visual cuando los filtros están abiertos */
+#contenedorFacturacion.filtros-abiertos {
+  box-shadow: 0 0 0 3px #4c6ca0;
+  border-radius: 10px;
+}
+
+/* Botón pequeño */
+.btn-sm {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.7rem;
+}
+
+/* ====== Navegación de meses/años dentro del panel ====== */
+
+.facturacion-periodos {
+  margin-top: 1rem;
+  border-top: 1px solid #ccc;
+  padding-top: 0.75rem;
+}
+
+.facturacion-periodos h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  color: #4c6ca0;
+}
+
+.facturacion-aside-list {
+  list-style: none;
+  padding-left: 0;
+  margin-top: 0.25rem;
+}
+
+.btn-mes {
+  width: 100%;
+  display: block;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  text-align: left;
+  margin-bottom: 4px;
+}
+
+.btn-mes-activo {
+  background-color: #4c6ca0;
+  color: white;
+}
+
+/* ====== RESPONSIVE FACTURACIÓN ====== */
+
+@media (max-width: 768px) {
+  .facturacion-layout {
+    flex-direction: column;
+  }
+
+  .filtros-panel {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 0;
+  }
+
+  .facturacion-busqueda .campo-busqueda {
+    min-width: 100%;
+  }
+}
+
+/* ====== FACTURACIÓN: CHECKBOX MARCADO (✔ / ✖) ====== */
+
+.campo-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-container {
+  display: flex;
+  align-items: center;
+}
+
+/* Checkbox grande con cuadro y símbolo ✔ / ✖ */
+.checkbox-marcado {
+  width: 1.6em;
+  height: 1.6em;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 2px solid #4c6ca0;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3em;
+  cursor: pointer;
+  background: #fff;
+}
+
+/* ✔ cuando está marcado */
+.checkbox-marcado:checked::before {
+  content: "✔";
+  color: #28a745;
+  font-weight: bold;
+}
+
+/* ✖ cuando NO está marcado */
+.checkbox-marcado:not(:checked)::before {
+  content: "✖";
+  color: #dc3545;
+  font-weight: bold;
+}
+
+/* ====== ICONO EN TABLA ====== */
+
+.marcado-icon {
+  width: 1.6em;
+  height: 1.6em;
+  border: 2px solid #4c6ca0;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2em;
+}
+
+.marcado-icon.marcado-si::before {
+  content: "✔";
+  color: #28a745;
+  font-weight: bold;
+}
+
+.marcado-icon.marcado-no::before {
+  content: "✖";
+  color: #dc3545;
+  font-weight: bold;
+}
+
+/* === ACCIONES EN TABLA: EDITAR + ARCHIVOS (botones) === */
+
+.col-acciones {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.2rem;
+}
+
+.btn-archivos {
+  font-size: 0.9rem;
+  padding: 0.35rem 0.7rem;
+}
+
+/* === OVERLAY / PANEL LATERAL DE ARCHIVOS (similar a filtros) === */
+
+.adj-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.25);
+  display: none;
+  justify-content: flex-end;
+  align-items: stretch;
+  z-index: 1100;
+}
+
+.adj-overlay.activo {
+  display: flex;
+}
+
+.adj-panel {
+  width: 340px;
+  max-width: 90vw;
+  background-color: #ffffff;
+  height: 100%;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+  border-top-left-radius: 10px;
+  border-bottom-left-radius: 10px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.adj-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.adj-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #4c6ca0;
+}
+
+.adj-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #666;
+}
+
+.adj-close:hover {
+  color: #c00;
+}
+
+.adj-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* Contenido interno del panel de archivos */
+
+.archivos-vacio {
+  font-size: 0.85rem;
+  color: #666;
+  margin: 0;
+}
+
+.archivos-lista {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.archivos-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.archivos-item:last-child {
+  border-bottom: none;
+}
+
+.archivo-nombre {
+  flex: 1;
+  font-size: 0.85rem;
+  text-decoration: none;
+  color: #007bff;
+  word-break: break-all;
+}
+
+.archivo-nombre:hover {
+  text-decoration: underline;
+}
+
+.form-adjuntos-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+}
+
+.form-adjuntos-menu input[type="file"] {
+  font-size: 0.8rem;
+}
+
+.btn-borrar-adjunto {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #c00;
+  font-size: 0.8rem;
+}
+
+.btn-borrar-adjunto:hover {
+  text-decoration: underline;
+}
+
+.orden-productos {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 5px;
+}

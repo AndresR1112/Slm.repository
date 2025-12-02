@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Facturación</title>
+  <link rel="stylesheet" href="/estilos.css">
+</head>
+
+<body>
+  <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
+
+  <%
+    const tipo = usuario ? usuario.tipo_usuario : null;
+
+    const esAdmin       = (tipo === 'administrador');
+    const esEmpleado    = (tipo === 'empleado');
+    const esAlmacen     = (tipo === 'almacen');
+    const esRH          = (tipo === 'recursos_humanos');
+    const esFact        = (tipo === 'facturacion');
+    const esCliente     = (tipo === 'cliente');
+    const esDesempleado = (tipo === 'desempleado');
+    const esCotizacion  = (tipo === 'cotizacion');
+
+    // ✅ Solo Admin y Facturación pueden ver y gestionar facturación
+    const puedeVerFactura       = esAdmin || esFact;
+    const puedeGestionarFactura = esAdmin || esFact;
+
+    // 🔢 Helper para formato de dinero MXN
+    function formatoMX(num) {
+      return Number(num || 0).toLocaleString('es-MX', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    // 🗓️ Nombres de meses para mostrar "Mes 9 (Septiembre)"
+    const nombresMes = [
+      '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+  %>
+
+  <!-- NAVBAR -->
+  <nav class="nav">
+    <a href="/catalogo">Catálogo</a>
+
+    <% if (esCliente) { %>
+      <!-- Cliente: solo Catálogo e Inventario -->
+      <a href="/inventario">Inventario</a>
+    <% } else if (!esDesempleado) { %>
+      <!-- Todos los demás (menos desempleado) -->
+      <a href="/entradas">Entradas</a>
+      <a href="/inventario">Inventario</a>
+      <a href="/salidas">Salidas</a>
+      <a href="/clientes">Clientes</a>
+      <a href="/cotizaciones">Cotizaciones</a>
+    <% } %>
+
+    <!-- ✅ Facturación solo Admin y Facturación -->
+    <% if (esAdmin || esFact) { %>
+      <a href="/facturacion" class="active">Facturación</a>
+    <% } %>
+
+    <!-- Usuarios solo Admin y RH -->
+    <% if (esAdmin || esRH) { %>
+      <a href="/usuarios">Usuarios</a>
+    <% } %>
+  </nav>
+
+  <% if (!puedeVerFactura) { %>
+    <!-- Usuario SIN permisos para ver Facturación -->
+    <main class="contenedor">
+      <h2>Facturación</h2>
+      <p style="text-align:center; margin-top:2rem; opacity:.7;">
+        No tienes permisos para ver el módulo de facturación.
+      </p>
+    </main>
+  <% } else { %>
+
+  <!-- ================= CONTENIDO PRINCIPAL FACTURACIÓN ================= -->
+  <main id="contenedorFacturacion" class="contenedor facturacion-layout">
+    <!-- =================== COLUMNA PRINCIPAL =================== -->
+    <section class="facturacion-main">
+
+      <div class="facturacion-header">
+        <h2>Facturación</h2>
+      </div>
+
+      <!-- ===== BÚSQUEDA GENERAL (fuera de filtros) ===== -->
+      <form method="GET" action="/facturacion" class="form-inline facturacion-busqueda">
+        <div class="campo-busqueda">
+          <label for="q">Búsqueda general</label>
+          <input
+            type="text"
+            id="q"
+            name="q"
+            placeholder="ODC, folio fiscal, factura, cliente, SSA, código..."
+            value="<%= q || '' %>">
+        </div>
+
+        <div class="botones">
+          <button type="submit" class="btn">Buscar</button>
+          <button type="button" id="toggleFiltros" class="btn btn3">Filtros</button>
+          <a href="/facturacion" class="btn btn-secundario">Limpiar</a>
+        </div>
+      </form>
+
+      <!-- BOTÓN NUEVA FACTURA (solo Admin / Facturación) -->
+      <% if (puedeGestionarFactura) { %>
+        <div class="botones">
+          <a href="/facturacion/nueva" class="btn btn-exito">+ Nueva Factura</a>
+        </div>
+      <% } %>
+
+      <div style="margin: 10px 0; font-size: 1.2rem; font-weight: bold; color:#4c6ca0;">
+        Total facturado del mes:
+        <span style="color:#28a745;">
+          $<%= formatoMX(totalMes) %>
+        </span>
+      </div>
+
+      <!-- ===== TABLA DE FACTURAS ===== -->
+      <table>
+        <thead>
+          <tr>
+            <th>Factura</th>
+            <th>Fecha</th>
+            <th>Cliente</th>
+            <th>Producto</th>
+            <th>ODC</th>
+            <th>Folio Fiscal</th>
+            <th>Monto</th>
+            <th>Estado</th>
+            <th>Marcado</th>
+            <th>Estatus Adm.</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!facturas || facturas.length === 0) { %>
+            <tr>
+              <td colspan="11">No hay facturas con los criterios actuales.</td>
+            </tr>
+          <% } else { %>
+            <% facturas.forEach(function (f) { %>
+              <tr>
+                <!-- 1) Factura -->
+                <td><%= f.factura %></td>
+
+                <!-- 2) Fecha -->
+                <td>
+                  <% if (f.fecha) { %>
+                    <%= f.fecha.toISOString ? f.fecha.toISOString().slice(0,10) : f.fecha %>
+                  <% } else { %>
+                    —
+                  <% } %>
+                </td>
+
+                <!-- 3) Cliente -->
+                <td><%= f.nombre_cliente || '—' %></td>
+
+                <!-- 4) Producto -->
+                <td>
+                  (<%= f.clave_catalogo || '' %>)
+                  <%= f.nombreProdu_catalogo || '' %>
+                </td>
+
+                <!-- 5) ODC -->
+                <td><%= f.odc || '—' %></td>
+
+                <!-- 6) Folio Fiscal -->
+                <td><%= f.folio_fiscal || '—' %></td>
+
+                <!-- 7) Monto -->
+                <td>
+                  <% if (f.monto != null) { %>
+                    $<%= formatoMX(f.monto) %>
+                  <% } else { %>
+                    —
+                  <% } %>
+                </td>
+
+                <!-- 8) Estado -->
+                <td>
+                  <% if (f.estado === 'pagado') { %>
+                    <span class="estado-verde">Pagado</span>
+                  <% } else if (f.estado === 'pendiente') { %>
+                    <span class="estado-amarillo">Pendiente</span>
+                  <% } else if (f.estado === 'cancelado') { %>
+                    <span class="estado-rojo">Cancelado</span>
+                  <% } else { %>
+                    <span><%= f.estado || '—' %></span>
+                  <% } %>
+                </td>
+
+                <!-- 9) Marcado (✔ / ✖ en cajita) -->
+                <td>
+                  <span class="marcado-icon <%= f.marcado ? 'marcado-si' : 'marcado-no' %>"></span>
+                </td>
+
+                <!-- 10) Estatus Administrativo -->
+                <td><%= f.estatus_administrativo || 'N/A' %></td>
+
+                <!-- 11) Acciones: Editar + Archivos -->
+                <td class="col-acciones">
+                  <%
+                    // Adjuntos de esta factura
+                    var adj = [];
+                    if (typeof adjuntosPorFactura !== 'undefined'
+                        && adjuntosPorFactura
+                        && adjuntosPorFactura[f.id_factura]) {
+                      adj = adjuntosPorFactura[f.id_factura];
+                    }
+
+                    // Construir texto de encabezado
+                    var headerParts = [];
+
+                    if (f.factura) {
+                      headerParts.push('Factura ' + f.factura);
+                    }
+
+                    if (f.fecha) {
+                      var fechaTxt = f.fecha.toISOString ? f.fecha.toISOString().slice(0,10) : f.fecha;
+                      headerParts.push(fechaTxt);
+                    }
+
+                    if (f.nombre_cliente) {
+                      headerParts.push(f.nombre_cliente);
+                    }
+
+                    if (f.nombreProdu_catalogo) {
+                      headerParts.push(f.nombreProdu_catalogo);
+                    }
+
+                    if (f.monto != null) {
+                      headerParts.push('Monto: $' + formatoMX(f.monto));
+                    }
+
+                    var headerTexto = headerParts.join(', ');
+                  %>
+
+                  <% if (puedeGestionarFactura) { %>
+                    <!-- Botón Editar (solo Admin / Facturación) -->
+                    <a href="/facturacion/editar/<%= f.id_factura %>" class="btn btn-secundario">Editar</a>
+                  <% } %>
+
+                  <!-- Botón Archivos (ver/descargar; eliminar/subir solo Admin/Facturación) -->
+                  <button
+                    type="button"
+                    class="btn btn3 btn-archivos"
+                    data-id="<%= f.id_factura %>"
+                    data-header="<%= headerTexto %>"
+                    onclick="abrirAdjuntos(<%= f.id_factura %>)">
+                    Archivos<%= (adj && adj.length > 0) ? ' (' + adj.length + ')' : '' %>
+                  </button>
+
+                  <!-- Plantilla oculta con la lista y el form de esa factura -->
+                  <div id="archivos-template-<%= f.id_factura %>" class="archivos-template" style="display:none;">
+
+                    <% if (!adj || adj.length === 0) { %>
+                      <p class="archivos-vacio">No hay archivos adjuntos.</p>
+                    <% } else { %>
+                      <ul class="archivos-lista">
+                        <% adj.forEach(function (a) { %>
+                          <li class="archivos-item">
+                            <a
+                              href="/adjuntos/descargar/<%= a.id_archivo %>"
+                              class="archivo-nombre"
+                              title="<%= a.nombre_original %>">
+                              <%= a.nombre_original %>
+                            </a>
+
+                            <% if (puedeGestionarFactura) { %>
+                              <!-- Eliminar archivo: SOLO Admin / Facturación -->
+                              <form
+                                action="/adjuntos/eliminar/<%= a.id_archivo %>"
+                                method="POST"
+                                class="form-borrar-adjunto"
+                                onsubmit="return confirm('¿Eliminar este archivo?');">
+                                <button type="submit" class="btn-borrar-adjunto">Eliminar</button>
+                              </form>
+                            <% } %>
+                          </li>
+                        <% }); %>
+                      </ul>
+                    <% } %>
+
+                    <% if (puedeGestionarFactura) { %>
+                      <!-- Subir nuevos archivos (SOLO Admin / Facturación) -->
+                      <form
+                        action="/adjuntos/subir/facturacion/<%= f.id_factura %>"
+                        method="POST"
+                        enctype="multipart/form-data"
+                        class="form-adjuntos-menu">
+                        <label>Agregar archivos (PDF):</label>
+                        <input type="file" name="archivos" multiple accept="application/pdf">
+                        <button type="submit" class="btn btn-sm">Subir</button>
+                      </form>
+                    <% } %>
+
+                  </div>
+                </td>
+              </tr>
+            <% }); %>
+          <% } %>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <% } /* cierre de if puedeVerFactura */ %>
+
+  <!-- ===== MENÚ LATERAL DERECHO DE FILTROS (tipo Amazon) ===== -->
+  <div id="filtrosOverlay" class="filtros-overlay">
+    <div class="filtros-panel">
+      <div class="filtros-header">
+        <h3>Filtros / Periodos</h3>
+        <button type="button" id="cerrarFiltros" class="btn btn-secundario btn-sm">X</button>
+      </div>
+
+      <!-- Formulario de filtros: usa GET a /facturacion  -->
+      <form method="GET" action="/facturacion" class="form-filtros">
+        <!-- Mantener la búsqueda actual si la hubiera -->
+        <input type="hidden" name="q" value="<%= q || '' %>">
+
+        <div class="fila">
+          <label for="estado">Estado</label>
+          <select id="estado" name="estado">
+            <option value="">-- Todos --</option>
+            <option value="pagado"   <%= (filtroEstado === 'pagado')   ? 'selected' : '' %>>Pagado</option>
+            <option value="pendiente"<%= (filtroEstado === 'pendiente')? 'selected' : '' %>>Pendiente</option>
+            <option value="cancelado"<%= (filtroEstado === 'cancelado')? 'selected' : '' %>>Cancelado</option>
+          </select>
+        </div>
+
+        <div class="fila">
+          <label for="mes">Mes</label>
+          <select id="mes" name="mes">
+            <option value="">-- Todos --</option>
+            <% for (var m = 1; m <= 12; m++) { %>
+              <option value="<%= m %>" <%= (mesActual == m ? 'selected' : '' ) %>>
+                Mes <%= m %> (<%= nombresMes[m] %>)
+              </option>
+            <% } %>
+          </select>
+        </div>
+
+        <div class="fila">
+          <label for="anio">Año</label>
+          <select id="anio" name="anio">
+            <option value="">-- Todos --</option>
+            <% if (listaAnios && listaAnios.length) { %>
+              <% listaAnios.forEach(function (anio) { %>
+                <option value="<%= anio %>" <%= (anioActual == anio ? 'selected' : '' ) %>>
+                  <%= anio %>
+                </option>
+              <% }); %>
+            <% } %>
+          </select>
+        </div>
+
+        <div class="botones">
+          <button type="submit" class="btn">Aplicar filtros</button>
+          <a href="/facturacion" class="btn btn-secundario">Limpiar todo</a>
+        </div>
+      </form>
+
+      <!-- Navegación rápida por año / mes -->
+      <div class="facturacion-periodos">
+        <h4>Ir a periodo</h4>
+
+        <% if (!listaAnios || listaAnios.length === 0) { %>
+          <p>No hay periodos registrados.</p>
+        <% } else { %>
+          <% listaAnios.forEach(function (anio) { %>
+            <details <%= (anioActual == anio) ? 'open' : '' %>>
+              <summary><strong><%= anio %></strong></summary>
+              <ul class="facturacion-aside-list">
+                <%
+                  var periodos = periodosPorAnio && periodosPorAnio[anio] ? periodosPorAnio[anio] : [];
+                  periodos.forEach(function (mes) {
+                    var activo = (mesActual == mes && anioActual == anio);
+                    var url = '/facturacion'
+                      + '?mes=' + encodeURIComponent(mes)
+                      + '&anio=' + encodeURIComponent(anio);
+
+                    if (filtroEstado) {
+                      url += '&estado=' + encodeURIComponent(filtroEstado);
+                    }
+                    if (q) {
+                      url += '&q=' + encodeURIComponent(q);
+                    }
+                %>
+                  <li>
+                    <a href="<%= url %>" class="btn btn-mes <%= activo ? 'btn-mes-activo' : '' %>">
+                      Mes <%= mes %> (<%= nombresMes[mes] %>)
+                    </a>
+                  </li>
+                <% }); %>
+              </ul>
+            </details>
+          <% }); %>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel lateral para Archivos -->
+  <div id="adjuntosOverlay" class="adj-overlay">
+    <div class="adj-panel">
+      <div class="adj-header">
+        <h3 id="adj-header-text">Archivos</h3>
+        <button type="button" class="adj-close" onclick="cerrarAdjuntos()">✖</button>
+      </div>
+      <div id="adj-body" class="adj-body"></div>
+    </div>
+  </div>
+
+  <!-- BOTÓN LOGOUT -->
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
+
+  <!-- Script filtros -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var overlay   = document.getElementById('filtrosOverlay');
+      var btnToggle = document.getElementById('toggleFiltros');
+      var btnCerrar = document.getElementById('cerrarFiltros');
+      var contenedor = document.getElementById('contenedorFacturacion');
+
+      function abrirFiltros() {
+        if (!overlay || !contenedor) return;
+        overlay.classList.add('activo');
+        contenedor.classList.add('filtros-abiertos');
+        if (btnToggle) btnToggle.textContent = 'Ocultar filtros';
+      }
+
+      function cerrarFiltros() {
+        if (!overlay || !contenedor) return;
+        overlay.classList.remove('activo');
+        contenedor.classList.remove('filtros-abiertos');
+        if (btnToggle) btnToggle.textContent = 'Filtros';
+      }
+
+      if (btnToggle && contenedor) {
+        btnToggle.addEventListener('click', function () {
+          if (overlay.classList.contains('activo')) {
+            cerrarFiltros();
+          } else {
+            abrirFiltros();
+          }
+        });
+      }
+
+      if (btnCerrar) {
+        btnCerrar.addEventListener('click', cerrarFiltros);
+      }
+
+      if (overlay) {
+        overlay.addEventListener('click', function (e) {
+          if (e.target === overlay) {
+            cerrarFiltros();
+          }
+        });
+      }
+    });
+  </script>
+
+  <!-- Script panel Archivos -->
+  <script>
+    function abrirAdjuntos(id) {
+      var tpl = document.getElementById('archivos-template-' + id);
+      if (!tpl) return;
+
+      var overlay  = document.getElementById('adjuntosOverlay');
+      var headerEl = document.getElementById('adj-header-text');
+      var bodyEl   = document.getElementById('adj-body');
+
+      var btn = document.querySelector('.btn-archivos[data-id="' + id + '"]');
+      if (btn && btn.dataset.header) {
+        headerEl.textContent = btn.dataset.header;
+      } else {
+        headerEl.textContent = 'Archivos';
+      }
+
+      bodyEl.innerHTML = tpl.innerHTML;
+      overlay.classList.add('activo');
+    }
+
+    function cerrarAdjuntos() {
+      var overlay = document.getElementById('adjuntosOverlay');
+      if (overlay) overlay.classList.remove('activo');
+    }
+
+    // Cerrar si se hace clic fuera del panel de archivos
+    document.addEventListener('click', function (e) {
+      var overlay = document.getElementById('adjuntosOverlay');
+      if (!overlay || !overlay.classList.contains('activo')) return;
+
+      var dentroPanel   = e.target.closest('.adj-panel');
+      var pulsandoBoton = e.target.closest('.btn-archivos');
+      if (!dentroPanel && !pulsandoBoton) {
+        cerrarAdjuntos();
+      }
+    });
+  </script>
+
+</body>
+</html>

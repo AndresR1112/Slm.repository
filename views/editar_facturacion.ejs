@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <title><%= editar ? 'Editar Factura' : 'Nueva Factura' %></title>
+  <link rel="stylesheet" href="/estilos.css">
+</head>
+
+<body>
+
+  <main class="contenedor">
+
+    <h2><%= editar ? 'Editar Factura' : 'Nueva Factura' %></h2>
+
+    <% if (error) { %>
+      <p style="color: red; background:#ffecec; padding:10px; border-radius:6px;">
+        <%= error %>
+      </p>
+    <% } %>
+
+    <form
+      method="POST"
+      action="<%= editar ? '/facturacion/editar/' + factura.id_factura : '/facturacion/nueva' %>"
+    >
+
+      <!-- Filtros del listado para regresar al mismo periodo -->
+      <input type="hidden" name="filtro_mes"    value="<%= typeof filtroMes    !== 'undefined' ? filtroMes    : '' %>">
+      <input type="hidden" name="filtro_anio"   value="<%= typeof filtroAnio   !== 'undefined' ? filtroAnio   : '' %>">
+      <input type="hidden" name="filtro_estado" value="<%= typeof filtroEstado !== 'undefined' ? filtroEstado : '' %>">
+      <input type="hidden" name="filtro_q"      value="<%= typeof filtroQ      !== 'undefined' ? filtroQ      : '' %>">
+
+      <!-- SERIE -->
+      <label>Serie:</label>
+      <input
+        type="text"
+        name="serie_factura"
+        value="<%= editar ? factura.serie_factura : seriePorDefecto %>"
+        required
+      >
+
+      <!-- NÚMERO DE FACTURA SIEMPRE VISIBLE -->
+      <label>Número de factura:</label>
+      <input
+        type="number"
+        name="numero_factura"
+        value="<%= editar ? factura.numero_factura : '' %>"
+        placeholder="Déjalo vacío para usar el consecutivo de la serie"
+      >
+
+      <!-- FECHA -->
+      <label>Fecha:</label>
+      <input
+        type="date"
+        name="fecha"
+        value="<%= hoy %>"
+        required
+      >
+
+      <!-- PRODUCTO -->
+      <label>Producto:</label>
+
+      <!-- Botones de ordenamiento del select de productos -->
+      <div class="orden-productos">
+        <button type="button" id="ordenClave" class="btn btn3">Clave ↑/↓</button>
+        <button type="button" id="ordenNombre" class="btn btn3">Nombre A–Z</button>
+      </div>
+
+      <select id="productoSelect" name="producto_fk" required>
+        <option value="">-- Selecciona producto --</option>
+        <% productos.forEach(p => { %>
+          <option
+            value="<%= p.id_catalogo %>"
+            data-clave="<%= p.clave_catalogo %>"
+            data-nombre="<%= p.nombreProdu_catalogo %>"
+            <%= editar && factura.producto_fk === p.id_catalogo ? 'selected' : '' %>
+          >
+            (<%= p.clave_catalogo %>) <%= p.nombreProdu_catalogo %>
+          </option>
+        <% }) %>
+      </select>
+
+      <!-- CLIENTE -->
+      <label>Cliente:</label>
+      <select name="cliente_fk">
+        <option value="">-- Sin cliente --</option>
+        <% clientes.forEach(c => { %>
+          <option
+            value="<%= c.id_cliente %>"
+            <%= editar && factura.cliente_fk === c.id_cliente ? 'selected' : '' %>
+          >
+            <%= c.nombre_cliente %> - <%= c.RFC_cliente %>
+          </option>
+        <% }) %>
+      </select>
+
+      <!-- ODC -->
+      <label>ODC:</label>
+      <input
+        type="text"
+        name="odc"
+        value="<%= editar ? (factura.odc || '') : '' %>"
+      >
+
+      <!-- FOLIO FISCAL -->
+      <label>Folio fiscal:</label>
+      <input
+        type="text"
+        name="folio_fiscal"
+        value="<%= editar ? factura.folio_fiscal : '' %>"
+        required
+      >
+
+      <!-- MONTO -->
+      <label>Monto:</label>
+      <input
+        type="number"
+        step="0.01"
+        name="monto"
+        value="<%= editar ? factura.monto : '' %>"
+        required
+      >
+
+      <!-- ESTADO -->
+      <label>Estado:</label>
+      <select name="estado">
+        <option value="pendiente" <%= editar && factura.estado === 'pendiente' ? 'selected' : '' %>>Pendiente</option>
+        <option value="pagado"    <%= editar && factura.estado === 'pagado'    ? 'selected' : '' %>>Pagado</option>
+        <option value="cancelado" <%= editar && factura.estado === 'cancelado' ? 'selected' : '' %>>Cancelado</option>
+      </select>
+
+      <!-- MARCADO -->
+      <div class="campo-checkbox">
+        <label for="marcado">Marcado:</label>
+        <div class="checkbox-container">
+          <input
+            type="checkbox"
+            id="marcado"
+            name="marcado"
+            class="checkbox-marcado"
+            <%= editar && factura.marcado ? 'checked' : '' %>
+          >
+        </div>
+      </div>
+
+      <!-- ESTATUS ADMINISTRATIVO -->
+      <label>Estatus Administrativo:</label>
+      <select name="estatus_administrativo" required>
+        <option
+          value="Aprobado"
+          <%= editar && factura.estatus_administrativo === 'Aprobado' ? 'selected' : '' %>
+        >
+          Aprobado
+        </option>
+
+        <option
+          value="En proceso"
+          <%= editar && factura.estatus_administrativo === 'En proceso' ? 'selected' : '' %>
+        >
+          En proceso
+        </option>
+
+        <option
+          value="Sin contra recibo"
+          <%= editar && factura.estatus_administrativo === 'Sin contra recibo' ? 'selected' : '' %>
+        >
+          Sin contra recibo
+        </option>
+
+        <option
+          value="N/A"
+          <%= editar && factura.estatus_administrativo === 'N/A'
+                ? 'selected'
+                : (!editar ? 'selected' : '') %>
+        >
+          N/A
+        </option>
+      </select>
+
+      <div class="botones">
+        <button class="btn-exito" type="submit">
+          <%= editar ? 'Guardar Cambios' : 'Crear Factura' %>
+        </button>
+        <a href="/facturacion" class="btn-cancelar">Cancelar</a>
+      </div>
+
+    </form>
+
+  </main>
+
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
+
+  <!-- Script para ordenar dinámicamente el select de productos -->
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const select    = document.getElementById("productoSelect");
+      const btnClave  = document.getElementById("ordenClave");
+      const btnNombre = document.getElementById("ordenNombre");
+
+      if (!select || !btnClave || !btnNombre) return;
+
+      // Guardamos las opciones originales
+      const opcionesOriginales = Array.from(select.querySelectorAll("option"));
+      let ordenClaveAsc = true; // alternador para clave ↑/↓
+
+      // Ordenar por clave (alternando asc/desc)
+      btnClave.addEventListener("click", () => {
+        const opciones = opcionesOriginales.slice(1); // omitimos la opción "selecciona"
+        opciones.sort((a, b) => {
+          const ca = (a.dataset.clave || "").toString();
+          const cb = (b.dataset.clave || "").toString();
+          return ordenClaveAsc
+            ? ca.localeCompare(cb, "es", { numeric: true })
+            : cb.localeCompare(ca, "es", { numeric: true });
+        });
+        ordenClaveAsc = !ordenClaveAsc;
+        actualizarSelect(opciones);
+      });
+
+      // Ordenar por nombre (siempre A–Z)
+      btnNombre.addEventListener("click", () => {
+        const opciones = opcionesOriginales.slice(1);
+        opciones.sort((a, b) => {
+          const na = (a.dataset.nombre || "").toLowerCase();
+          const nb = (b.dataset.nombre || "").toLowerCase();
+          return na.localeCompare(nb, "es");
+        });
+        actualizarSelect(opciones);
+      });
+
+      function actualizarSelect(opcionesOrdenadas) {
+        const seleccionado = select.value;
+
+        // Limpiamos y volvemos a agregar "Selecciona producto"
+        select.innerHTML = "";
+        select.appendChild(opcionesOriginales[0]);
+
+        // Agregamos las opciones ordenadas
+        opcionesOrdenadas.forEach(opt => select.appendChild(opt));
+
+        // Restauramos la selección previa
+        select.value = seleccionado;
+      }
+    });
+  </script>
+
+</body>
+</html>

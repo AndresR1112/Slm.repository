@@ -5,6 +5,7 @@ const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+const ExcelJS = require('exceljs');
 const db = require('./db');
 const multer = require('multer');
 const bcrypt = require('bcryptjs'); // <- Encriptar contraseñas
@@ -739,19 +740,87 @@ app.get('/reporte', estaLogueado, async (req, res) => {
     res.status(500).send("Error al generar el reporte PDF");
   }
 });
-
 /* ===== Catálogo ===== */
+
+// LISTADO PRINCIPAL DE CATALOGO
 app.get('/catalogo', estaLogueado, async (req, res) => {
   try {
-    const [results] = await db.query('SELECT * FROM catalogo ORDER BY nombreProdu_catalogo ASC');
-    res.render('catalogo', { catalogo: results, usuario: req.session.usuario });
+    const [results] = await db.query(`
+      SELECT 
+        id_catalogo,
+        clave_catalogo,
+        nombreProdu_catalogo,
+        presentacion_catalogo,
+        claveSSA_catalogo,
+        precioVenta_catalogo,
+        costoUnitario_catalogo
+      FROM catalogo
+      ORDER BY clave_catalogo ASC
+    `);
+
+    res.render('catalogo', { 
+      catalogo: results, 
+      usuario: req.session.usuario,
+      q: ''  // para que el input de búsqueda no truene
+    });
+
   } catch (err) {
-    console.error(err);
+    console.error('Error al cargar catálogo:', err);
     res.send('Error al cargar catálogo');
   }
 });
 
-/* Buscar en catálogo por clave, clave SSA o nombre */
+// EXPORTAR CATALOGO A EXCEL
+app.get('/catalogo/exportar', estaLogueado, async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT 
+        clave_catalogo         AS Clave,
+        nombreProdu_catalogo   AS Nombre,
+        presentacion_catalogo  AS Presentacion,
+        claveSSA_catalogo      AS Clave_SSA,
+        precioVenta_catalogo   AS Precio_Venta,
+        costoUnitario_catalogo AS Costo_Unitario
+      FROM catalogo
+      ORDER BY clave_catalogo ASC
+    `);
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Catálogo');
+
+    worksheet.columns = [
+      { header: 'Clave',          key: 'Clave',          width: 18 },
+      { header: 'Nombre',         key: 'Nombre',         width: 50 },
+      { header: 'Presentación',   key: 'Presentacion',   width: 25 },
+      { header: 'Clave SSA',      key: 'Clave_SSA',      width: 18 },
+      { header: 'Precio Venta',   key: 'Precio_Venta',   width: 15 },
+      { header: 'Costo Unitario', key: 'Costo_Unitario', width: 15 }
+    ];
+
+    rows.forEach(row => worksheet.addRow(row));
+    worksheet.getRow(1).font = { bold: true };
+
+    const nombreArchivo = 'catalogo.xlsx';
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=${nombreArchivo}`
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error('Error exportando catálogo a Excel:', err);
+    res.status(500).send('Error al exportar catálogo');
+  }
+});
+
+// Buscar en catálogo por clave, clave SSA o nombre
 app.get('/catalogo/buscar', estaLogueado, async (req, res) => {
   const q = req.query.q?.toString().trim();
   if (!q) return res.redirect('/catalogo');
@@ -769,7 +838,11 @@ app.get('/catalogo/buscar', estaLogueado, async (req, res) => {
       [q, q, q]
     );
 
-    res.render('catalogo', { catalogo: results, usuario: req.session.usuario, q });
+    res.render('catalogo', { 
+      catalogo: results, 
+      usuario: req.session.usuario, 
+      q 
+    });
   } catch (err) {
     console.error('Error buscando en catálogo:', err);
     res.send('Error buscando en catálogo');
@@ -833,18 +906,20 @@ app.post('/catalogo/eliminar/:id', estaLogueado, puedeEditarCatalogo, async (req
   }
 });
 
+
+/* ===== Entradas ===== */
 /* ===== Entradas ===== */
 app.get('/entradas', estaLogueado, async (req, res) => {
   try {
     const [entrada] = await db.query(`
       SELECT e.*,
              CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS ProductoNombre,
-             i.lote_inventario      AS LoteInventario,
+             i.lote_inventario              AS LoteInventario,
              i.estadoDelProducto_inventario AS EstadoInv
       FROM entrada e
       LEFT JOIN inventario i ON e.producto_FKdeInv = i.id_inventario
       LEFT JOIN catalogo c   ON i.producto_FKinventario = c.id_catalogo
-      ORDER BY e.fechaDeEntrada DESC
+      ORDER BY e.fechaDeEntrada DESC, c.clave_catalogo ASC
     `);
 
     const idsEntradas = entrada.map(e => e.id_entrada);
@@ -877,6 +952,59 @@ app.get('/entradas', estaLogueado, async (req, res) => {
   } catch (err) {
     console.error('Error cargando entradas:', err);
     res.send('Error cargando entradas');
+  }
+});
+
+/* 🔹 Exportar ENTRADAS a Excel */
+app.get('/entradas/exportar', estaLogueado, async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT 
+        e.fechaDeEntrada           AS Fecha,
+        e.proveedor                AS Proveedor,
+        c.clave_catalogo           AS Clave,
+        c.nombreProdu_catalogo     AS Producto,
+        e.lote                     AS Lote,
+        e.caducidad                AS Caducidad,
+        e.cantidad                 AS Cantidad,
+        e.costoTotal_entrada       AS Costo_Total
+      FROM entrada e
+      LEFT JOIN inventario i ON e.producto_FKdeInv = i.id_inventario
+      LEFT JOIN catalogo c   ON i.producto_FKinventario = c.id_catalogo
+      ORDER BY e.fechaDeEntrada DESC, c.clave_catalogo ASC
+    `);
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Entradas');
+
+    worksheet.columns = [
+      { header: 'Fecha',       key: 'Fecha',       width: 12 },
+      { header: 'Proveedor',   key: 'Proveedor',   width: 25 },
+      { header: 'Clave',       key: 'Clave',       width: 18 },
+      { header: 'Producto',    key: 'Producto',    width: 45 },
+      { header: 'Lote',        key: 'Lote',        width: 15 },
+      { header: 'Caducidad',   key: 'Caducidad',   width: 12 },
+      { header: 'Cantidad',    key: 'Cantidad',    width: 12 },
+      { header: 'Costo Total', key: 'Costo_Total', width: 15 }
+    ];
+
+    rows.forEach(row => worksheet.addRow(row));
+    worksheet.getRow(1).font = { bold: true };
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=entradas.xlsx'
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('Error exportando entradas a Excel:', err);
+    res.status(500).send('Error al exportar entradas');
   }
 });
 
@@ -1235,7 +1363,7 @@ app.get('/salidas', estaLogueado, async (req, res) => {
       LEFT JOIN cliente    cl ON cl.id_cliente   = s.id_cliente
       LEFT JOIN inventario i  ON i.id_inventario = s.id_inventario
       LEFT JOIN catalogo   ca ON ca.id_catalogo  = i.producto_FKinventario
-      ORDER BY s.fecha_salida DESC
+      ORDER BY s.fecha_salida DESC, ca.clave_catalogo ASC
     `);
 
     const [adjuntos] = await db.query(
@@ -1258,6 +1386,69 @@ app.get('/salidas', estaLogueado, async (req, res) => {
   } catch (err) {
     console.error('Error cargando salidas:', err);
     res.send('Error cargando salidas');
+  }
+});
+
+/* 🔹 Exportar SALIDAS a Excel */
+app.get('/salidas/exportar', estaLogueado, async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        s.fecha_salida              AS Fecha,
+        s.ordenDeCompra_salida      AS Orden_de_compra,
+        cl.nombre_cliente           AS Cliente,
+        CONCAT('(', ca.clave_catalogo, ') ', 
+               TRIM(REPLACE(ca.nombreProdu_catalogo, CONCAT('(', ca.clave_catalogo, ')'), '')))
+          AS Producto,
+        ca.clave_catalogo           AS Codigo,
+        s.lote                      AS Lote,
+        s.cantidad                  AS Cantidad,
+        s.precioDeVenta_salida      AS Precio_Venta,
+        s.totalFacturado_salida     AS Total_Facturado,
+        s.folioDeFacturacion_salida AS Folio_de_Facturacion
+      FROM salida s
+      LEFT JOIN cliente    cl ON cl.id_cliente   = s.id_cliente
+      LEFT JOIN inventario i  ON i.id_inventario = s.id_inventario
+      LEFT JOIN catalogo   ca ON ca.id_catalogo  = i.producto_FKinventario
+      ORDER BY s.fecha_salida DESC, ca.clave_catalogo ASC
+    `);
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Salidas');
+
+    worksheet.columns = [
+      { header: 'Fecha',               key: 'Fecha',               width: 12 },
+      { header: 'Orden de compra',     key: 'Orden_de_compra',     width: 18 },
+      { header: 'Cliente',             key: 'Cliente',             width: 30 },
+      { header: 'Producto',            key: 'Producto',            width: 45 },
+      { header: 'Clave',               key: 'Codigo',              width: 16 },
+      { header: 'Lote',                key: 'Lote',                width: 15 },
+      { header: 'Cantidad',            key: 'Cantidad',            width: 12 },
+      { header: 'Precio Venta',        key: 'Precio_Venta',        width: 15 },
+      { header: 'Total Facturado',     key: 'Total_Facturado',     width: 18 },
+      { header: 'Folio de facturación',key: 'Folio_de_Facturacion',width: 22 }
+    ];
+
+    rows.forEach(row => {
+      worksheet.addRow(row);
+    });
+
+    worksheet.getRow(1).font = { bold: true };
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=salidas.xlsx'
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('Error exportando salidas a Excel:', err);
+    res.status(500).send('Error al exportar salidas');
   }
 });
 
@@ -1293,6 +1484,8 @@ app.get('/salidas/buscar', estaLogueado, async (req, res) => {
     res.send('Error buscando orden de compra');
   }
 });
+
+// (el resto de tus rutas de nueva / editar se queda igual)
 
 app.get('/salidas/nueva', estaLogueado, puedeEditarSalidas, async (req, res) => {
   try {
@@ -1708,12 +1901,65 @@ app.get('/clientes', estaLogueado, async (req, res) => {
       FROM cliente
       ORDER BY nombre_cliente ASC
     `);
-    res.render('clientes', { clientes: resultados, usuario: req.session.usuario });
+
+    res.render('clientes', { 
+      clientes: resultados, 
+      usuario: req.session.usuario 
+    });
+
   } catch (err) {
     console.error(err);
     res.send('Error cargando clientes');
   }
 });
+
+/* ===== Exportar Clientes a Excel ===== */
+app.get('/clientes/exportar', estaLogueado, async (req, res) => {
+  try {
+    const [clientes] = await db.query(`
+      SELECT
+        nombre_cliente    AS Nombre,
+        RFC_cliente       AS RFC,
+        direccion_cliente AS Direccion,
+        telefono_cliente  AS Telefono,
+        correo_cliente    AS Correo
+      FROM cliente
+      ORDER BY nombre_cliente ASC
+    `);
+
+    const ExcelJS = require('exceljs');
+    const workbook = new ExcelJS.Workbook();
+    const ws = workbook.addWorksheet('Clientes');
+
+    ws.columns = [
+      { header: 'Nombre',     key: 'Nombre',     width: 40 },
+      { header: 'RFC',        key: 'RFC',        width: 20 },
+      { header: 'Dirección',  key: 'Direccion',  width: 50 },
+      { header: 'Teléfono',   key: 'Telefono',   width: 20 },
+      { header: 'Correo',     key: 'Correo',     width: 35 },
+    ];
+
+    clientes.forEach(c => ws.addRow(c));
+
+    ws.getRow(1).font = { bold: true };
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=clientes.xlsx'
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('Error exportando clientes:', err);
+    res.send('Error exportando clientes');
+  }
+});
+
 
 app.get('/clientes/nuevo', estaLogueado, puedeEditarClientes, async (req, res) => {
   const cliente = { Id: 0, Nombre: '', RFC: '', Direccion: '', Telefono: '', Correo: '' };
@@ -1879,7 +2125,7 @@ app.get('/cotizaciones', estaLogueado, async (req, res) => {
     if (isNaN(mes))  mes  = null;
     if (isNaN(anio)) anio = null;
 
-    // Mapeo de estatus del filtro (minúsculas) a lo que guardas en BD (por ejemplo: 'Aprobada', 'Pendiente', etc.)
+    // Mapeo de estatus del filtro (minúsculas) a lo que guardas en BD
     const mapaEstatus = {
       'aprobada'  : 'Aprobada',
       'rechazada' : 'Rechazada',
@@ -1888,6 +2134,196 @@ app.get('/cotizaciones', estaLogueado, async (req, res) => {
     const estatusBD = estatus ? (mapaEstatus[estatus.toLowerCase()] || null) : null;
 
     // ========= 2) WHERE dinámico =========
+    const condiciones = [];
+    const params = [];
+
+    if (mes !== null) {
+      condiciones.push('MONTH(c.fechaDeFolio_cotizacion) = ?');
+      params.push(mes);
+    }
+
+    if (anio !== null) {
+      condiciones.push('YEAR(c.fechaDeFolio_cotizacion) = ?');
+      params.push(anio);
+    }
+
+    if (dependencia !== '') {
+      condiciones.push('c.dependencia_cotizacion = ?');
+      params.push(dependencia);
+    }
+
+    if (responsable !== '') {
+      condiciones.push('c.responsableDeLaCotizacionFK = ?');
+      params.push(parseInt(responsable, 10));
+    }
+
+    if (estatusBD) {
+      condiciones.push('c.estatus_cotizacion = ?');
+      params.push(estatusBD);
+    }
+
+    if (q !== '') {
+      const like = `%${q}%`;
+      condiciones.push(`
+        (
+          c.folio_cotizacion LIKE ?               -- folio manual
+          OR CONCAT('SLM-', LPAD(c.id_cotizacion, 5, '0')) LIKE ? -- folio autogenerado
+          OR c.dependencia_cotizacion LIKE ?
+          OR COALESCE(u.nombreCompleto, '') LIKE ?
+          OR c.estatus_cotizacion LIKE ?
+        )
+      `);
+      for (let i = 0; i < 5; i++) params.push(like);
+    }
+
+    const whereClause = condiciones.length
+      ? 'WHERE ' + condiciones.join(' AND ')
+      : '';
+
+    // ========= 3) Consulta principal =========
+    const [cotizaciones] = await db.query(`
+      SELECT
+        c.id_cotizacion AS id,
+        CASE
+          WHEN c.folio_cotizacion IS NOT NULL AND c.folio_cotizacion <> ''
+            THEN c.folio_cotizacion
+          ELSE CONCAT('SLM-', LPAD(c.id_cotizacion, 5, '0'))
+        END AS folioVisible,
+        c.noDeFolio_FKcotizacion       AS noDeFolioFK,
+        c.fechaDeFolio_cotizacion      AS fechaDeFolio,
+        c.partidasCotizadas_cotizacion AS partidasCotizadas,
+        c.montoMaxCotizado_cotizacion  AS montoMaxCotizado,
+        c.dependencia_cotizacion       AS dependencia,
+        c.vigenciaDeLaCotizacion       AS vigenciaDeLaCotizacion,
+        c.fechaFinDeLaCotizacion       AS fechaFinDeLaCotizacion,
+        COALESCE(u.nombreCompleto, '—') AS responsableDeLaCotizacion,
+        c.responsableDeLaCotizacionFK  AS responsableDeLaCotizacionFK,
+        c.estatus_cotizacion           AS estatusDeLaCotizacion,
+        c.partidasAsignadas_cotizacion AS partidasAsignadas,
+        c.montoMaxAsignado_cotizacion  AS montoMaximoAsignado
+      FROM cotizacion c
+      LEFT JOIN usuario u ON u.id_usuario = c.responsableDeLaCotizacionFK
+      ${whereClause}
+      ORDER BY folioVisible DESC   -- 👈 ahora de mayor folio a menor
+    `, params);
+
+    // ========= 4) Adjuntos por cotización =========
+    let adjuntosPorCotizacion = {};
+
+    if (cotizaciones.length > 0) {
+      const ids = cotizaciones.map(c => c.id);
+
+      const [adjuntos] = await db.query(
+        `
+          SELECT 
+            id_archivo,
+            id_registro,
+            nombre_original
+          FROM archivo_adjunto
+          WHERE modulo = 'cotizacion'
+            AND id_registro IN (?)
+        `,
+        [ids]
+      );
+
+      adjuntos.forEach(a => {
+        if (!adjuntosPorCotizacion[a.id_registro]) {
+          adjuntosPorCotizacion[a.id_registro] = [];
+        }
+        adjuntosPorCotizacion[a.id_registro].push(a);
+      });
+    }
+
+    // ========= 5) Listas para filtros =========
+
+    const [periodos] = await db.query(`
+      SELECT DISTINCT
+        YEAR(c.fechaDeFolio_cotizacion)  AS anio,
+        MONTH(c.fechaDeFolio_cotizacion) AS mes
+      FROM cotizacion c
+      WHERE c.fechaDeFolio_cotizacion IS NOT NULL
+      ORDER BY anio DESC, mes ASC
+    `);
+
+    const setAnios = new Set();
+    const setMeses = new Set();
+
+    periodos.forEach(p => {
+      if (p.anio) setAnios.add(p.anio);
+      if (p.mes)  setMeses.add(p.mes);
+    });
+
+    const listaAniosCot = Array.from(setAnios).sort((a, b) => b - a); // años desc
+    const listaMesesCot = Array.from(setMeses).sort((a, b) => a - b); // meses asc
+
+    const [depsRows] = await db.query(`
+      SELECT DISTINCT dependencia_cotizacion AS dependencia
+      FROM cotizacion
+      WHERE dependencia_cotizacion IS NOT NULL
+        AND dependencia_cotizacion <> ''
+      ORDER BY dependencia_cotizacion ASC
+    `);
+    const dependenciasLista = depsRows.map(r => r.dependencia);
+
+    const [respRows] = await db.query(`
+      SELECT DISTINCT
+        u.id_usuario,
+        u.nombreCompleto
+      FROM cotizacion c
+      JOIN usuario u ON u.id_usuario = c.responsableDeLaCotizacionFK
+      WHERE c.responsableDeLaCotizacionFK IS NOT NULL
+      ORDER BY u.nombreCompleto ASC
+    `);
+    const responsablesLista = respRows;
+
+    res.render('cotizaciones', {
+      usuario: req.session.usuario,
+      cotizaciones,
+      adjuntosPorCotizacion,
+      q,
+      mes,
+      anio,
+      dependencia,
+      responsable,
+      estatus,
+      listaAniosCot,
+      listaMesesCot,
+      dependenciasLista,
+      responsablesLista
+    });
+  } catch (err) {
+    console.error('Error cargando cotizaciones:', err);
+    res.status(500).send('Error en el servidor');
+  }
+});
+
+app.get('/cotizaciones/exportar', estaLogueado, async (req, res) => {
+  try {
+    // ========= 1) Leer mismos filtros que /cotizaciones =========
+    const qRaw           = (req.query.q || '').toString().trim();
+    const mesRaw         = (req.query.mes || '').toString().trim();
+    const anioRaw        = (req.query.anio || '').toString().trim();
+    const dependenciaRaw = (req.query.dependencia || '').toString().trim();
+    const responsableRaw = (req.query.responsable || '').toString().trim(); // id_usuario
+    const estatusRaw     = (req.query.estatus || '').toString().trim();     // 'aprobada','rechazada','pendiente'
+
+    let q           = qRaw;
+    let mes         = mesRaw ? parseInt(mesRaw, 10)  : null;
+    let anio        = anioRaw ? parseInt(anioRaw, 10) : null;
+    let dependencia = dependenciaRaw || '';
+    let responsable = responsableRaw || '';
+    let estatus     = estatusRaw || '';
+
+    if (isNaN(mes))  mes  = null;
+    if (isNaN(anio)) anio = null;
+
+    const mapaEstatus = {
+      'aprobada'  : 'Aprobada',
+      'rechazada' : 'Rechazada',
+      'pendiente' : 'Pendiente'
+    };
+    const estatusBD = estatus ? (mapaEstatus[estatus.toLowerCase()] || null) : null;
+
     const condiciones = [];
     const params = [];
 
@@ -1934,8 +2370,7 @@ app.get('/cotizaciones', estaLogueado, async (req, res) => {
       ? 'WHERE ' + condiciones.join(' AND ')
       : '';
 
-    // ========= 3) Consulta principal =========
-    const [cotizaciones] = await db.query(`
+    const [rows] = await db.query(`
       SELECT
         c.id_cotizacion AS id,
         CASE
@@ -1951,111 +2386,65 @@ app.get('/cotizaciones', estaLogueado, async (req, res) => {
         c.vigenciaDeLaCotizacion       AS vigenciaDeLaCotizacion,
         c.fechaFinDeLaCotizacion       AS fechaFinDeLaCotizacion,
         COALESCE(u.nombreCompleto, '—') AS responsableDeLaCotizacion,
-        c.responsableDeLaCotizacionFK  AS responsableDeLaCotizacionFK,
         c.estatus_cotizacion           AS estatusDeLaCotizacion,
         c.partidasAsignadas_cotizacion AS partidasAsignadas,
         c.montoMaxAsignado_cotizacion  AS montoMaximoAsignado
       FROM cotizacion c
       LEFT JOIN usuario u ON u.id_usuario = c.responsableDeLaCotizacionFK
       ${whereClause}
-      ORDER BY c.id_cotizacion DESC
+      ORDER BY folioVisible DESC
     `, params);
 
-    // ========= 4) Adjuntos por cotización =========
-    let adjuntosPorCotizacion = {};
+    // ========= 2) Crear Excel =========
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Cotizaciones');
 
-    if (cotizaciones.length > 0) {
-      const ids = cotizaciones.map(c => c.id);
+    worksheet.columns = [
+      { header: 'Folio',                   key: 'folioVisible',        width: 15 },
+      { header: 'No. Folio (consecutivo)', key: 'noDeFolioFK',        width: 20 },
+      { header: 'Fecha de folio',          key: 'fechaDeFolio',       width: 15 },
+      { header: 'Partidas cotizadas',      key: 'partidasCotizadas',  width: 18 },
+      { header: 'Monto máx. cotizado',     key: 'montoMaxCotizado',   width: 20 },
+      { header: 'Dependencia',             key: 'dependencia',        width: 30 },
+      { header: 'Vigencia (días)',         key: 'vigenciaDeLaCotizacion', width: 16 },
+      { header: 'Fecha fin',               key: 'fechaFinDeLaCotizacion', width: 15 },
+      { header: 'Responsable',             key: 'responsableDeLaCotizacion', width: 30 },
+      { header: 'Estatus',                 key: 'estatusDeLaCotizacion',    width: 15 },
+      { header: 'Partidas asignadas',      key: 'partidasAsignadas',        width: 18 },
+      { header: 'Monto máx. asignado',     key: 'montoMaximoAsignado',      width: 20 }
+    ];
 
-      const [adjuntos] = await db.query(
-        `
-          SELECT 
-            id_archivo,
-            id_registro,
-            nombre_original
-          FROM archivo_adjunto
-          WHERE modulo = 'cotizacion'
-            AND id_registro IN (?)
-        `,
-        [ids]
-      );
-
-      adjuntos.forEach(a => {
-        if (!adjuntosPorCotizacion[a.id_registro]) {
-          adjuntosPorCotizacion[a.id_registro] = [];
-        }
-        adjuntosPorCotizacion[a.id_registro].push(a);
+    rows.forEach(r => {
+      worksheet.addRow({
+        folioVisible:              r.folioVisible || '',
+        noDeFolioFK:               r.noDeFolioFK || '',
+        fechaDeFolio:              r.fechaDeFolio ? new Date(r.fechaDeFolio).toLocaleDateString('es-MX') : '',
+        partidasCotizadas:         r.partidasCotizadas || 0,
+        montoMaxCotizado:          r.montoMaxCotizado || 0,
+        dependencia:               r.dependencia || '',
+        vigenciaDeLaCotizacion:    r.vigenciaDeLaCotizacion != null ? r.vigenciaDeLaCotizacion : '',
+        fechaFinDeLaCotizacion:    r.fechaFinDeLaCotizacion ? new Date(r.fechaFinDeLaCotizacion).toLocaleDateString('es-MX') : '',
+        responsableDeLaCotizacion: r.responsableDeLaCotizacion || '',
+        estatusDeLaCotizacion:     r.estatusDeLaCotizacion || '',
+        partidasAsignadas:         r.partidasAsignadas || 0,
+        montoMaximoAsignado:       r.montoMaximoAsignado || 0
       });
-    }
-
-    // ========= 5) Listas para filtros (meses, años, dependencias, responsables) =========
-
-    // Meses y años donde sí hay cotizaciones
-    const [periodos] = await db.query(`
-      SELECT DISTINCT
-        YEAR(c.fechaDeFolio_cotizacion)  AS anio,
-        MONTH(c.fechaDeFolio_cotizacion) AS mes
-      FROM cotizacion c
-      WHERE c.fechaDeFolio_cotizacion IS NOT NULL
-      ORDER BY anio DESC, mes ASC
-    `);
-
-    const setAnios = new Set();
-    const setMeses = new Set();
-
-    periodos.forEach(p => {
-      if (p.anio) setAnios.add(p.anio);
-      if (p.mes)  setMeses.add(p.mes);
     });
 
-    const listaAniosCot = Array.from(setAnios).sort((a, b) => b - a); // años desc
-    const listaMesesCot = Array.from(setMeses).sort((a, b) => a - b); // meses asc
+    // Encabezados de respuesta
+    res.setHeader('Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="cotizaciones.xlsx"'
+    );
 
-    // Dependencias distintas
-    const [depsRows] = await db.query(`
-      SELECT DISTINCT dependencia_cotizacion AS dependencia
-      FROM cotizacion
-      WHERE dependencia_cotizacion IS NOT NULL
-        AND dependencia_cotizacion <> ''
-      ORDER BY dependencia_cotizacion ASC
-    `);
-    const dependenciasLista = depsRows.map(r => r.dependencia);
-
-    // Responsables distintos (id_usuario + nombre)
-    const [respRows] = await db.query(`
-      SELECT DISTINCT
-        u.id_usuario,
-        u.nombreCompleto
-      FROM cotizacion c
-      JOIN usuario u ON u.id_usuario = c.responsableDeLaCotizacionFK
-      WHERE c.responsableDeLaCotizacionFK IS NOT NULL
-      ORDER BY u.nombreCompleto ASC
-    `);
-    const responsablesLista = respRows; // [{id_usuario, nombreCompleto}, ...]
-
-    // ========= 6) Render =========
-    res.render('cotizaciones', {
-      usuario: req.session.usuario,
-      cotizaciones,
-      adjuntosPorCotizacion,
-
-      // filtros actuales
-      q,
-      mes,
-      anio,
-      dependencia,
-      responsable,
-      estatus,
-
-      // listas para combos
-      listaAniosCot,
-      listaMesesCot,
-      dependenciasLista,
-      responsablesLista
-    });
+    await workbook.xlsx.write(res);
+    res.end();
   } catch (err) {
-    console.error('Error cargando cotizaciones:', err);
-    res.status(500).send('Error en el servidor');
+    console.error('Error exportando cotizaciones a Excel:', err);
+    res.status(500).send('Error al exportar cotizaciones');
   }
 });
 
@@ -2311,7 +2700,6 @@ function soloAdminYFacturacion(req, res, next) {
 }
 
 /* ===== Rutas de Facturación ===== */
-
 // Listado + buscador flexible + barra lateral mes/año + total del mes
 app.get('/facturacion', estaLogueado, soloAdminYFacturacion, async (req, res) => {
   try {
@@ -2398,10 +2786,12 @@ app.get('/facturacion', estaLogueado, soloAdminYFacturacion, async (req, res) =>
       LEFT JOIN cliente cli ON f.cliente_fk = cli.id_cliente
       LEFT JOIN usuario u ON f.usuario_fk = u.id_usuario
       ${whereClause}
-      ORDER BY f.fecha DESC, f.numero_factura DESC
+      ORDER BY
+        f.serie_factura ASC,
+        f.numero_factura ASC
     `, params);
 
-    // Adjuntos (los dejamos intactos)
+    // Adjuntos
     const [adjRows] = await db.query(`
       SELECT id_archivo, id_registro, nombre_original
       FROM archivo_adjunto
@@ -2446,7 +2836,7 @@ app.get('/facturacion', estaLogueado, soloAdminYFacturacion, async (req, res) =>
       periodosPorAnio[fila.anio].push(fila.mes);
     }
 
-    // 🔹 Guardar filtros actuales en sesión para reutilizarlos en los POST
+    // Guardar filtros actuales en sesión
     req.session.filtrosFacturacion = {
       mes,
       anio,
@@ -2472,6 +2862,176 @@ app.get('/facturacion', estaLogueado, soloAdminYFacturacion, async (req, res) =>
     res.send('Error cargando facturación');
   }
 });
+
+app.get('/facturacion/exportar', estaLogueado, soloAdminYFacturacion, async (req, res) => {
+  try {
+    const hoy = new Date();
+
+    const q            = (req.query.q || '').trim();
+    const filtroEstado = (req.query.estado || '').trim();
+    const anioRaw      = req.query.anio;
+
+    // Año a exportar: si no viene, usamos el año actual
+    let anio = anioRaw ? parseInt(anioRaw, 10) : hoy.getFullYear();
+    if (isNaN(anio) || anio < 2000) {
+      anio = hoy.getFullYear();
+    }
+
+    const condiciones = [];
+    const params = [];
+
+    // SIEMPRE por año (para poder separar por meses en el Excel)
+    condiciones.push('YEAR(f.fecha) = ?');
+    params.push(anio);
+
+    if (filtroEstado && ['pagado', 'pendiente', 'cancelado'].includes(filtroEstado)) {
+      condiciones.push('f.estado = ?');
+      params.push(filtroEstado);
+    }
+
+    if (q) {
+      const like = `%${q}%`;
+      condiciones.push(`
+        (
+          f.odc LIKE ?
+          OR f.folio_fiscal LIKE ?
+          OR f.factura LIKE ?
+          OR cli.nombre_cliente LIKE ?
+          OR cli.RFC_cliente LIKE ?
+          OR cat.clave_catalogo LIKE ?
+          OR cat.claveSSA_catalogo LIKE ?
+          OR cat.nombreProdu_catalogo LIKE ?
+        )
+      `);
+      for (let i = 0; i < 8; i++) params.push(like);
+    }
+
+    const whereClause = condiciones.length ? 'WHERE ' + condiciones.join(' AND ') : '';
+
+    // Traemos todas las facturas de ese año (y demás filtros) y calculamos el mes en la consulta
+    const [rows] = await db.query(`
+      SELECT
+        f.*,
+        cat.clave_catalogo,
+        cat.claveSSA_catalogo,
+        cat.nombreProdu_catalogo,
+        cli.nombre_cliente,
+        cli.RFC_cliente,
+        u.nombreCompleto AS nombre_usuario,
+        MONTH(f.fecha) AS mes_num
+      FROM facturacion f
+      LEFT JOIN catalogo cat ON f.producto_fk = cat.id_catalogo
+      LEFT JOIN cliente cli ON f.cliente_fk = cli.id_cliente
+      LEFT JOIN usuario u   ON f.usuario_fk  = u.id_usuario
+      ${whereClause}
+      ORDER BY
+        f.fecha ASC,
+        f.serie_factura ASC,
+        f.numero_factura ASC
+    `, params);
+
+    if (!rows.length) {
+      return res.status(404).send('No hay facturas para exportar con los filtros actuales.');
+    }
+
+    // ================= CREAR EXCEL =================
+    const workbook = new ExcelJS.Workbook();
+    const nombresMes = [
+      '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+
+    // Agrupar por mes
+    const porMes = {}; // { 1: [facturas], 2: [...], ... }
+
+    for (const f of rows) {
+      const mes = f.mes_num || 0;
+      if (!porMes[mes]) porMes[mes] = [];
+      porMes[mes].push(f);
+    }
+
+    // Crear una hoja por cada mes que tenga facturas
+    Object.keys(porMes)
+      .map(m => parseInt(m, 10))
+      .sort((a, b) => a - b)
+      .forEach(mes => {
+        const lista = porMes[mes];
+        const nombreHoja = nombresMes[mes] || `Mes ${mes}`;
+
+        const ws = workbook.addWorksheet(nombreHoja);
+
+        // Encabezados de columnas (puedes ajustar a tu gusto)
+        ws.columns = [
+          { header: 'Factura',            key: 'factura',       width: 15 },
+          { header: 'Fecha',              key: 'fecha',         width: 12 },
+          { header: 'Cliente',            key: 'cliente',       width: 30 },
+          { header: 'RFC',                key: 'rfc',           width: 18 },
+          { header: 'Producto (clave)',   key: 'productoClave', width: 18 },
+          { header: 'Descripción',        key: 'productoNombre',width: 40 },
+          { header: 'ODC',                key: 'odc',           width: 18 },
+          { header: 'Folio fiscal',       key: 'folio_fiscal',  width: 32 },
+          { header: 'Monto',              key: 'monto',         width: 18 },
+          { header: 'Estado',             key: 'estado',        width: 12 },
+          { header: 'Marcado',            key: 'marcado',       width: 10 },
+          { header: 'Estatus adm.',       key: 'estatus_adm',   width: 20 },
+          { header: 'Usuario captura',    key: 'usuario',       width: 25 },
+        ];
+
+        // Filas
+        lista.forEach(f => {
+          let fechaTxt = '';
+          if (f.fecha) {
+            const d = f.fecha instanceof Date ? f.fecha : new Date(f.fecha);
+            const y = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            fechaTxt = `${y}-${mm}-${dd}`;
+          }
+
+          ws.addRow({
+            factura:        f.factura || `${f.serie_factura || ''}-${String(f.numero_factura || '').padStart(3, '0')}`,
+            fecha:          fechaTxt,
+            cliente:        f.nombre_cliente || '',
+            rfc:            f.RFC_cliente || '',
+            productoClave:  f.clave_catalogo || '',
+            productoNombre: f.nombreProdu_catalogo || '',
+            odc:            f.odc || '',
+            folio_fiscal:   f.folio_fiscal || '',
+            monto:          f.monto || 0,
+            estado:         f.estado || '',
+            marcado:        f.marcado ? 'Sí' : 'No',
+            estatus_adm:    f.estatus_administrativo || '',
+            usuario:        f.nombre_usuario || ''
+          });
+        });
+
+        // Opcional: formato de moneda en columna "Monto"
+        ws.getColumn('monto').numFmt = '"$"#,##0.00;[Red]\-"$"#,##0.00';
+        // Opcional: auto-filtro
+        ws.autoFilter = {
+          from: 'A1',
+          to:   'M1'
+        };
+      });
+
+    // ================= ENVIAR RESPUESTA =================
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="facturacion_${anio}.xlsx"`
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('Error exportando facturación a Excel:', err);
+    res.status(500).send('Error al exportar facturación');
+  }
+});
+
 
 // NUEVA FACTURA (GET)
 app.get('/facturacion/nueva', estaLogueado, soloAdminYFacturacion, async (req, res) => {
@@ -2935,7 +3495,6 @@ app.post('/facturacion/editar/:id_factura', estaLogueado, soloAdminYFacturacion,
     }
   }
 });
-  
 
 
 /* Alias útiles */

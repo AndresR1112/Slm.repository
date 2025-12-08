@@ -66,7 +66,7 @@
     <h2>Entradas de Producto</h2>
 
     <!-- Buscador -->
-    <form action="/entradas/buscar" method="GET" style="margin-bottom: 1rem%;">
+    <form action="/entradas/buscar" method="GET" style="margin-bottom: 1rem;">
       <label for="q">Buscar por Proveedor, Lote, Nombre, Clave o Clave SSA:</label>
 
       <input
@@ -81,11 +81,13 @@
       <a href="/entradas" class="btn btn-exito">Mostrar todas</a>
     </form>
 
-    <% if (puedeEditarEntradas) { %>
-      <a href="/entradas/nueva">
-        <button class="btn btn-exito">Nueva Entrada</button>
-      </a>
-    <% } %>
+    <!-- Botones de acciones -->
+    <div style="margin-bottom: 1rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+      <% if (puedeEditarEntradas) { %>
+        <a href="/entradas/nueva" class="btn btn-exito">Nueva Entrada</a>
+      <% } %>
+      <a href="/entradas/exportar" class="btn btn3">Exportar entradas a Excel</a>
+    </div>
 
     <table>
       <thead>
@@ -185,7 +187,6 @@
                     </div>
                   <% } %>
                 <% } else { %>
-                  <!-- Igual que en Catálogo: solo texto, misma celda -->
                   <span style="color: gray; font-size: 0.85rem;">Sin permisos</span>
                 <% } %>
               </td>

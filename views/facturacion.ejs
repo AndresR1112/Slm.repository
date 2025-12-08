@@ -113,6 +113,23 @@
         </div>
       <% } %>
 
+      <!-- BOTÓN EXPORTAR A EXCEL (por año, una hoja por mes) -->
+      <% if (puedeVerFactura) { %>
+        <div class="botones" style="margin-top: 0.5rem;">
+          <a
+            href="/facturacion/exportar?<%=
+              [
+                (anioActual ? 'anio=' + encodeURIComponent(anioActual) : ''),
+                (filtroEstado ? 'estado=' + encodeURIComponent(filtroEstado) : ''),
+                (q ? 'q=' + encodeURIComponent(q) : '')
+              ].filter(Boolean).join('&')
+            %>"
+            class="btn btn3">
+            Exportar a Excel (por mes)
+          </a>
+        </div>
+      <% } %>
+
       <div style="margin: 10px 0; font-size: 1.2rem; font-weight: bold; color:#4c6ca0;">
         Total facturado del mes:
         <span style="color:#28a745;">

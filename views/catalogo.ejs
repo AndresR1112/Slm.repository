@@ -21,10 +21,10 @@
     const esFacturacion  = (tipo === 'facturacion');
     const esCotizacion   = (tipo === 'cotizacion');
 
-    // 👉 Empleado y Cotización solo lectura
+    // Empleado y Cotización solo lectura
     const puedeEditarCatalogo = esAdmin || esAlmacen;
 
-    // 👉 Formato dinero MX
+    // Formato dinero MX
     function formatoMX(n){
       if (n === null || n === undefined) return '';
       return Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -77,9 +77,15 @@
       <a href="/catalogo" class="btn btn-exito">Mostrar todas</a>
     </form>
 
-    <% if (puedeEditarCatalogo) { %>
-      <a href="/catalogo/nuevo" class="btn btn-exito">Agregar nuevo medicamento</a>
-    <% } %>
+    <!-- Botones de acciones: agregar + exportar -->
+    <div style="margin-bottom: 1rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+      <% if (puedeEditarCatalogo) { %>
+        <a href="/catalogo/nuevo" class="btn btn-exito">Agregar nuevo medicamento</a>
+      <% } %>
+      <a href="/catalogo/exportar" class="btn btn3  ">
+        Exportar catálogo a Excel
+      </a>
+    </div>
 
     <table border="1" cellpadding="10" cellspacing="0"
            style="width:100%; background:white; border-radius:10px; border-collapse:collapse;">
@@ -103,7 +109,7 @@
               <td><%= med.presentacion_catalogo %></td>
               <td><%= med.claveSSA_catalogo %></td>
 
-              <!-- 🔥 FORMATO MX -->
+              <!--  FORMATO MX -->
               <td>$<%= formatoMX(med.precioVenta_catalogo) %></td>
               <td>$<%= formatoMX(med.costoUnitario_catalogo) %></td>
 

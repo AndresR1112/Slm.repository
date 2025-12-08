@@ -126,10 +126,13 @@
         </div>
       </form>
 
-      <!-- Botón Agregar: solo Admin + Cotizacion -->
-      <% if (puedeGestionarCot) { %>
-        <a href="/cotizaciones/nueva" class="btn btn-exito">Agregar nueva cotización</a>
-      <% } %>
+      <!-- Botones: Nueva + Exportar a Excel -->
+      <div style="margin-bottom: 1rem; display:flex; gap:.5rem; flex-wrap:wrap; align-items:center;">
+        <% if (puedeGestionarCot) { %>
+          <a href="/cotizaciones/nueva" class="btn btn-exito">Agregar nueva cotización</a>
+        <% } %>
+        <a href="/cotizaciones/exportar" class="btn btn3">Exportar a Excel</a>
+      </div>
 
       <table>
         <thead>

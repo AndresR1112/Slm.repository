@@ -77,11 +77,13 @@
         <a href="/salidas" class="btn btn-exito">Mostrar todas</a>
       </form>
 
-      <% if (puedeEditarSalidas) { %>
-        <a href="/salidas/nueva">
-          <button class="btn btn-exito">Nueva Salida</button>
-        </a>
-      <% } %>
+      <!-- BOTONES DE ACCIÓN -->
+      <div style="margin-bottom: 1rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <% if (puedeEditarSalidas) { %>
+          <a href="/salidas/nueva" class="btn btn-exito">Nueva Salida</a>
+        <% } %>
+        <a href="/salidas/exportar" class="btn btn3">Exportar salidas a Excel</a>
+      </div>
 
       <table>
         <thead>
@@ -107,20 +109,13 @@
             <% salidas.forEach(s => { %>
               <tr>
                 <td><%= s.orden_de_compra || '' %></td>
-
                 <td><%= s.Fecha ? new Date(s.Fecha).toLocaleDateString('es-MX') : '-' %></td>
-
                 <td><%= s.ClienteNombre || '-' %></td>
-
                 <td><%= s.ProductoNombre || '-' %></td>
-
                 <td><%= s.Lote || '-' %></td>
-
                 <td><%= formatoEnteroMX(s.Cantidad ?? 0) %></td>
-
                 <td>$<%= formatoMX(s.Precio_Venta) %></td>
                 <td>$<%= formatoMX(s.Total_Facturado) %></td>
-
                 <td><%= s.Folio_de_Facturacion || '-' %></td>
 
                 <!-- ACCIONES -->

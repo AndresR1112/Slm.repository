@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Inventario 3PL</title>
+  <link rel="stylesheet" href="/estilos.css" />
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+</head>
+
+<body>
+
+  <nav class="nav">
+    <a href="/cliente">Resumen 3PL</a>
+    <a href="/cliente/entradas">Entradas</a>
+    <a href="/cliente/inventario" class="active">Inventario</a>
+    <a href="/cliente/salidas">Salidas</a>
+  </nav>
+
+  <% const sel=filtrosSeleccionados || {}; const qVal=(typeof q !=='undefined' && q !==null) ? q : (sel.q || '' ); %>
+
+    <!-- CONTENEDOR PRINCIPAL -->
+    <main id="contenedorFacturacion" class="contenedor facturacion-layout">
+      <section class="facturacion-main">
+
+        <div class="facturacion-header">
+          <h2>Inventario de mis productos</h2>
+        </div>
+
+        <p>Consulta tus lotes, existencias y caducidades administradas por Sologmedic.</p>
+
+        <!-- ===== BÚSQUEDA GENERAL + BOTÓN FILTROS ===== -->
+        <form method="GET" action="/cliente/inventario" class="form-inline facturacion-busqueda">
+          <div class="campo-busqueda">
+            <label for="q">Búsqueda general</label>
+            <input type="text" id="q" name="q" placeholder="Producto, lote, stock, estado..." value="<%= qVal || '' %>">
+          </div>
+
+          <div class="botones">
+            <button type="submit" class="btn">Buscar</button>
+            <button type="button" id="toggleFiltros" class="btn btn3">Filtros</button>
+            <a href="/cliente/inventario" class="btn btn-secundario">Limpiar</a>
+          </div>
+        </form>
+
+        <% const selInv=filtrosSeleccionados || {}; const qInvVal=(typeof q !=='undefined' && q !==null) ? q : (selInv.q
+          || '' ); const paramsExportInv=[]; if (selInv.producto) paramsExportInv.push('producto=' + encodeURIComponent(selInv.producto));
+                if (selInv.lote)     paramsExportInv.push(' lote='     + encodeURIComponent(selInv.lote));
+                if (selInv.stock)    paramsExportInv.push(' stock='    + encodeURIComponent(selInv.stock));
+                if (selInv.estado)   paramsExportInv.push(' estado='   + encodeURIComponent(selInv.estado));
+                if (qInvVal)         paramsExportInv.push(' q='        + encodeURIComponent(qInvVal));
+                const qsExportInv = paramsExportInv.length ? (' ?' + paramsExportInv.join('&')) : '' ; %>
+
+          <div class="botones" style="margin-bottom:1rem;">
+            <a href="/cliente/inventario/exportar<%= qsExportInv %>" class="btn btn3">
+              Exportar inventario a Excel
+            </a>
+          </div>
+          <!-- TABLA INVENTARIO -->
+          <table>
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Lote</th>
+                <th>Stock</th>
+                <th>Caducidad</th>
+                <th>Días restantes</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <% if (!inventario || inventario.length===0) { %>
+                <tr>
+                  <td colspan="6">No hay inventario registrado.</td>
+                </tr>
+                <% } else { %>
+                  <% inventario.forEach(function(item) { %>
+                    <tr>
+                      <!-- Producto: (CLAVE) Nombre -->
+                      <td>
+                        <% const claveProd=item.clave_catalogo || '' ; const nombreProd=item.nombreProdu_catalogo || ''
+                          ; %>
+                          <% if (claveProd) { %>
+                            (<%= claveProd %>) <%= nombreProd %>
+                                <% } else { %>
+                                  <%= nombreProd %>
+                                    <% } %>
+                      </td>
+
+                      <td>
+                        <%= item.lote_inventario %>
+                      </td>
+                      <td>
+                        <%= item.stock_inventario %>
+                      </td>
+
+                      <td>
+                        <% if (item.caducidad_inventario) { %>
+                          <%= new Date(item.caducidad_inventario).toLocaleDateString( "es-MX" , { day: "2-digit" ,
+                            month: "2-digit" , year: "numeric" } ) %>
+                            <% } else { %>
+                              -
+                              <% } %>
+                      </td>
+
+                      <td>
+                        <% const diasRest=(item.diasRestantes_inventario ?? null); %>
+                          <%= diasRest !==null ? diasRest + ' días' : '-' %>
+                      </td>
+
+                      <td class="<%=
+                  item.estadoDelProducto_inventario === 'Vigente' ? 'estado-verde' :
+                  item.estadoDelProducto_inventario === 'Próximo a vencer' ? 'estado-amarillo' :
+                  'estado-rojo'
+                %>">
+                        <%= item.estadoDelProducto_inventario %>
+                      </td>
+                    </tr>
+                    <% }); %>
+                      <% } %>
+            </tbody>
+          </table>
+      </section>
+    </main>
+
+    <!-- ===== PANEL LATERAL DE FILTROS (INVENTARIO) ===== -->
+    <div id="filtrosOverlay" class="filtros-overlay">
+      <div class="filtros-panel">
+        <div class="filtros-header">
+          <h3>Filtros de inventario</h3>
+          <button type="button" id="cerrarFiltros" class="btn btn-secundario btn-sm">X</button>
+        </div>
+
+        <form method="GET" action="/cliente/inventario" class="form-filtros">
+          <!-- mantener búsqueda general -->
+          <input type="hidden" name="q" value="<%= qVal || '' %>">
+
+          <!-- Producto -->
+          <div class="fila">
+            <label for="producto">Producto</label>
+            <select id="producto" name="producto">
+              <option value="">Todos</option>
+              <% (filtrosProductos || []).forEach(p=> { %>
+                <option value="<%= p.id_catalogo %>" <%=String(sel.producto || '' )===String(p.id_catalogo) ? 'selected'
+                  : '' %>>
+                  (<%= p.clave_catalogo %>) <%= p.nombreProdu_catalogo %>
+                </option>
+                <% }) %>
+            </select>
+          </div>
+
+          <!-- Lote (depende de producto) -->
+          <div class="fila">
+            <label for="lote">Lote</label>
+            <select id="lote" name="lote" data-lote-seleccionado="<%= sel.lote ? String(sel.lote) : '' %>">
+              <option value="">Todos</option>
+              <% (filtrosLotes || []).forEach(l=> { %>
+                <option value="<%= l.lote %>"
+                  data-producto-id="<%= l.id_catalogo || l.producto_FKinventario || l.Producto || l.producto || '' %>"
+                  <%=String(sel.lote || '' )===String(l.lote) ? 'selected' : '' %>>
+                  <%= l.lote %>
+                </option>
+                <% }) %>
+            </select>
+          </div>
+
+          <!-- Stock -->
+          <div class="fila">
+            <label for="stock">Stock</label>
+            <select id="stock" name="stock">
+              <option value="">Todos</option>
+              <% (filtrosStock || []).forEach(s=> { %>
+                <option value="<%= s.stock %>" <%=String(sel.stock || '' )===String(s.stock) ? 'selected' : '' %>>
+                  <%= s.stock %>
+                </option>
+                <% }) %>
+            </select>
+          </div>
+
+          <!-- Estado -->
+          <div class="fila">
+            <label for="estado">Estado</label>
+            <select id="estado" name="estado">
+              <option value="">Todos</option>
+              <% (filtrosEstados || []).forEach(e=> { %>
+                <option value="<%= e.estado %>" <%=String(sel.estado || '' )===String(e.estado) ? 'selected' : '' %>>
+                  <%= e.estado %>
+                </option>
+                <% }) %>
+            </select>
+          </div>
+
+          <div class="botones">
+            <button type="submit" class="btn">Aplicar filtros</button>
+            <a href="/cliente/inventario" class="btn btn-secundario">Limpiar todo</a>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <a href="/logout" class="btn-logout">Cerrar sesión</a>
+
+    <!-- Script filtros + dependencia PRODUCTO–LOTE -->
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        var overlay = document.getElementById('filtrosOverlay');
+        var btnToggle = document.getElementById('toggleFiltros');
+        var btnCerrar = document.getElementById('cerrarFiltros');
+        var contenedor = document.getElementById('contenedorFacturacion');
+
+        function abrirFiltros() {
+          if (!overlay || !contenedor) return;
+          overlay.classList.add('activo');
+          contenedor.classList.add('filtros-abiertos');
+          if (btnToggle) btnToggle.textContent = 'Ocultar filtros';
+        }
+
+        function cerrarFiltros() {
+          if (!overlay || !contenedor) return;
+          overlay.classList.remove('activo');
+          contenedor.classList.remove('filtros-abiertos');
+          if (btnToggle) btnToggle.textContent = 'Filtros';
+        }
+
+        if (btnToggle && contenedor) {
+          btnToggle.addEventListener('click', function () {
+            if (overlay.classList.contains('activo')) {
+              cerrarFiltros();
+            } else {
+              abrirFiltros();
+            }
+          });
+        }
+
+        if (btnCerrar) {
+          btnCerrar.addEventListener('click', cerrarFiltros);
+        }
+
+        if (overlay) {
+          overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) {
+              cerrarFiltros();
+            }
+          });
+        }
+
+        // ===== Dependencia PRODUCTO -> LOTE (DOM) =====
+        var selProd = document.getElementById('producto');
+        var selLote = document.getElementById('lote');
+
+        if (selLote) {
+          var opcionesOriginales = Array.from(selLote.querySelectorAll('option'));
+          var loteSelServidor = selLote.getAttribute('data-lote-seleccionado') || '';
+
+          function repoblarLotes() {
+            var prodVal = selProd ? selProd.value : '';
+            selLote.innerHTML = '';
+
+            var optTodos = document.createElement('option');
+            optTodos.value = '';
+            optTodos.textContent = 'Todos';
+            selLote.appendChild(optTodos);
+
+            opcionesOriginales.slice(1).forEach(function (opt) {
+              var prodIdDeLote = opt.getAttribute('data-producto-id') || '';
+              if (!prodVal || String(prodIdDeLote) === String(prodVal)) {
+                selLote.appendChild(opt);
+              }
+            });
+
+            if (loteSelServidor && selLote.querySelector('option[value="' + loteSelServidor + '"]')) {
+              selLote.value = loteSelServidor;
+            }
+          }
+
+          repoblarLotes();
+
+          if (selProd) {
+            selProd.addEventListener('change', function () {
+              loteSelServidor = '';
+              repoblarLotes();
+            });
+          }
+        }
+      });
+    </script>
+
+</body>
+
+</html>

@@ -6,12 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Salidas</title>
   <link rel="stylesheet" href="/estilos.css" />
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
 
 <body>
   <%
-    const tipo = usuario ? usuario.tipo_usuario : null;
-
+    const tipo          = usuario ? usuario.tipo_usuario : null;
     const esAdmin       = (tipo === 'administrador');
     const esEmpleado    = (tipo === 'empleado');
     const esAlmacen     = (tipo === 'almacen');
@@ -21,15 +22,17 @@
     const esDesempleado = (tipo === 'desempleado');
     const esCotizacion  = (tipo === 'cotizacion');
 
-    // 👇 Solo Admin / Almacén pueden editar / gestionar salidas
     const puedeEditarSalidas   = esAdmin || esAlmacen;
     const puedeArchivosSalidas = esAdmin || esAlmacen;
     const puedeAccionesSalidas = puedeEditarSalidas || puedeArchivosSalidas;
 
-    // 🔢 FORMATO NUMÉRICO
     function formatoMX(num) {
-      return Number(num || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return Number(num || 0).toLocaleString('es-MX', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
     }
+
     function formatoEnteroMX(num) {
       return Number(num || 0).toLocaleString('es-MX');
     }
@@ -69,7 +72,7 @@
       </p>
     <% } else { %>
 
-      <!-- BUSCADOR -->
+      <!-- Buscador -->
       <form action="/salidas/buscar" method="GET" style="margin-bottom: 1rem;">
         <label for="orden_buscar">Buscar por Orden de Compra:</label>
         <input type="number" name="orden_buscar" id="orden_buscar" required>
@@ -77,7 +80,7 @@
         <a href="/salidas" class="btn btn-exito">Mostrar todas</a>
       </form>
 
-      <!-- BOTONES DE ACCIÓN -->
+      <!-- Botones -->
       <div style="margin-bottom: 1rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
         <% if (puedeEditarSalidas) { %>
           <a href="/salidas/nueva" class="btn btn-exito">Nueva Salida</a>
@@ -106,19 +109,35 @@
               <td colspan="10" style="text-align:center; opacity:.7;">Sin resultados</td>
             </tr>
           <% } else { %>
-            <% salidas.forEach(s => { %>
-              <tr>
+            <% salidas.forEach(s => {
+                 const es3PL   = !!s.id_cliente_propietario;
+                 const rowClass = es3PL ? 'fila-3pl' : '';
+            %>
+              <tr class="<%= rowClass %>">
                 <td><%= s.orden_de_compra || '' %></td>
-                <td><%= s.Fecha ? new Date(s.Fecha).toLocaleDateString('es-MX') : '-' %></td>
-                <td><%= s.ClienteNombre || '-' %></td>
+
+                <td>
+                  <%= s.Fecha
+                        ? new Date(s.Fecha).toLocaleDateString('es-MX')
+                        : '-' %>
+                </td>
+
+                <td>
+                  <%= s.ClienteNombre || '-' %>
+                  <% if (es3PL) { %>
+                    <span class="badge-3pl">3PL</span>
+                  <% } %>
+                </td>
+
                 <td><%= s.ProductoNombre || '-' %></td>
                 <td><%= s.Lote || '-' %></td>
-                <td><%= formatoEnteroMX(s.Cantidad ?? 0) %></td>
+
+                <td><%= formatoEnteroMX(s.Cantidad != null ? s.Cantidad : 0) %></td>
                 <td>$<%= formatoMX(s.Precio_Venta) %></td>
                 <td>$<%= formatoMX(s.Total_Facturado) %></td>
+
                 <td><%= s.Folio_de_Facturacion || '-' %></td>
 
-                <!-- ACCIONES -->
                 <td class="col-acciones">
                   <% if (puedeAccionesSalidas) { %>
                     <%
@@ -156,7 +175,9 @@
                           <ul class="archivos-lista">
                             <% adj.forEach(a => { %>
                               <li class="archivos-item">
-                                <a href="/adjuntos/descargar/<%= a.id_archivo %>" class="archivo-nombre">
+                                <a
+                                  href="/adjuntos/descargar/<%= a.id_archivo %>"
+                                  class="archivo-nombre">
                                   <%= a.nombre_original %>
                                 </a>
 
@@ -168,7 +189,7 @@
                                   <button type="submit" class="btn-borrar-adjunto">Eliminar</button>
                                 </form>
                               </li>
-                            <% }); %>
+                            <% }) %>
                           </ul>
                         <% } %>
 
@@ -218,14 +239,15 @@
       const bodyEl = document.getElementById('adj-body');
 
       const btn = document.querySelector('.btn-archivos[data-id="' + id + '"]');
-      headerEl.textContent = btn && btn.dataset.header ? btn.dataset.header : 'Archivos';
+      headerEl.textContent = (btn && btn.dataset.header) ? btn.dataset.header : 'Archivos';
 
       bodyEl.innerHTML = tpl.innerHTML;
       overlay.classList.add('activo');
     }
 
     function cerrarAdjuntos() {
-      document.getElementById('adjuntosOverlay')?.classList.remove('activo');
+      const overlay = document.getElementById('adjuntosOverlay');
+      if (overlay) overlay.classList.remove('activo');
     }
 
     document.addEventListener('click', function (e) {
@@ -235,7 +257,9 @@
       const dentroPanel = e.target.closest('.adj-panel');
       const pulsandoBoton = e.target.closest('.btn-archivos');
 
-      if (!dentroPanel && !pulsandoBoton) cerrarAdjuntos();
+      if (!dentroPanel && !pulsandoBoton) {
+        cerrarAdjuntos();
+      }
     });
   </script>
 

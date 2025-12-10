@@ -8,6 +8,8 @@
     <%= editar ? 'Editar Usuario' : 'Nuevo Usuario' %>
   </title>
   <link rel="stylesheet" href="/estilos.css">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
 
 <body>
@@ -23,20 +25,36 @@
       </p>
     <% } %>
 
-    <form action="<%= editar ? '/usuarios/editar/' + usuarioData.id_usuario : '/usuarios/nuevo' %>"
-          method="POST"
-          style="display:flex; flex-direction: column; gap: 1rem; background-color: white; padding: 2rem; border-radius: 10px;">
+    <% 
+      // Alias para que no truene si en el controlador se llama "clientes3pl"
+      const listaClientes3pl = (typeof clientes3pl !== 'undefined' && clientes3pl) ? clientes3pl : [];
+    %>
+
+    <form
+      action="<%= editar ? '/usuarios/editar/' + usuarioData.id_usuario : '/usuarios/nuevo' %>"
+      method="POST"
+      style="display:flex; flex-direction: column; gap: 1rem; background-color: white; padding: 2rem; border-radius: 10px;">
 
       <label>
         Usuario:
-        <input type="text" name="userName" class="input" required placeholder="Ingresa tu usuario"
-               value="<%= usuarioData ? usuarioData.userName || '' : '' %>">
+        <input
+          type="text"
+          name="userName"
+          class="input"
+          required
+          placeholder="Ingresa tu usuario"
+          value="<%= usuarioData ? (usuarioData.userName || '') : '' %>">
       </label>
 
       <label>
         Nombre completo:
-        <input type="text" name="nombreCompleto" class="input" required placeholder="Nombre y apellidos"
-               value="<%= usuarioData ? usuarioData.nombreCompleto || '' : '' %>">
+        <input
+          type="text"
+          name="nombreCompleto"
+          class="input"
+          required
+          placeholder="Nombre y apellidos"
+          value="<%= usuarioData ? (usuarioData.nombreCompleto || '') : '' %>">
       </label>
 
       <label>
@@ -45,59 +63,68 @@
           <option value="">Selecciona un tipo</option>
 
           <option value="administrador"
-            <%= usuarioData && usuarioData.tipo_usuario==='administrador' ? 'selected' : '' %>>
+            <%= usuarioData && usuarioData.tipo_usuario === 'administrador' ? 'selected' : '' %>>
             Administrador
           </option>
 
           <option value="empleado"
-            <%= usuarioData && usuarioData.tipo_usuario==='empleado' ? 'selected' : '' %>>
+            <%= usuarioData && usuarioData.tipo_usuario === 'empleado' ? 'selected' : '' %>>
             Empleado
           </option>
 
-          <!-- 🔵 Nuevo tipo de usuario: COTIZACIÓN -->
           <option value="cotizacion"
-            <%= usuarioData && usuarioData.tipo_usuario==='cotizacion' ? 'selected' : '' %>>
+            <%= usuarioData && usuarioData.tipo_usuario === 'cotizacion' ? 'selected' : '' %>>
             Cotización
           </option>
 
           <option value="desempleado"
-            <%= usuarioData && usuarioData.tipo_usuario==='desempleado' ? 'selected' : '' %>>
+            <%= usuarioData && usuarioData.tipo_usuario === 'desempleado' ? 'selected' : '' %>>
             Desempleado
           </option>
 
           <option value="cliente"
-            <%= usuarioData && usuarioData.tipo_usuario==='cliente' ? 'selected' : '' %>>
+            <%= usuarioData && usuarioData.tipo_usuario === 'cliente' ? 'selected' : '' %>>
             Cliente
           </option>
 
           <option value="almacen"
-            <%= usuarioData && usuarioData.tipo_usuario==='almacen' ? 'selected' : '' %>>
+            <%= usuarioData && usuarioData.tipo_usuario === 'almacen' ? 'selected' : '' %>>
             Almacén
           </option>
 
           <option value="facturacion"
-            <%= usuarioData && usuarioData.tipo_usuario==='facturacion' ? 'selected' : '' %>>
+            <%= usuarioData && usuarioData.tipo_usuario === 'facturacion' ? 'selected' : '' %>>
             Facturación
           </option>
 
           <option value="recursos_humanos"
-            <%= usuarioData && usuarioData.tipo_usuario==='recursos_humanos' ? 'selected' : '' %>>
+            <%= usuarioData && usuarioData.tipo_usuario === 'recursos_humanos' ? 'selected' : '' %>>
             Recursos humanos
           </option>
-
         </select>
       </label>
 
       <label>
         Teléfono:
-        <input type="text" name="telefono_usuario" class="input" maxlength="10" required placeholder="Teléfono"
-               value="<%= usuarioData ? usuarioData.telefono_usuario || '' : '' %>">
+        <input
+          type="text"
+          name="telefono_usuario"
+          class="input"
+          maxlength="10"
+          required
+          placeholder="Teléfono"
+          value="<%= usuarioData ? (usuarioData.telefono_usuario || '') : '' %>">
       </label>
 
       <label>
         Correo:
-        <input type="email" name="correo_usuario" class="input" required placeholder="Correo electrónico"
-               value="<%= usuarioData ? usuarioData.correo_usuario || '' : '' %>">
+        <input
+          type="email"
+          name="correo_usuario"
+          class="input"
+          required
+          placeholder="Correo electrónico"
+          value="<%= usuarioData ? (usuarioData.correo_usuario || '') : '' %>">
       </label>
 
       <label>
@@ -107,24 +134,31 @@
           name="contraseña_usuario"
           class="input"
           placeholder="Contraseña"
-          <%= editar ? '' : 'required' %>
-        >
+          <%= editar ? '' : 'required' %>>
       </label>
 
-      <div style="display:flex; gap: 1rem; flex-wrap: wrap;">
+      <!-- 👇 Asociación opcional a Cliente 3PL (solo aplica si el tipo de usuario es "cliente") -->
+      <label>
+        Cliente 3PL asociado (solo para usuarios tipo "cliente"):
+        <select name="id_cliente" class="input">
+          <option value="">-- Sin cliente asociado --</option>
+          <% (listaClientes3pl || []).forEach(function(c) { %>
+            <option
+              value="<%= c.id_cliente %>"
+              <%= (usuarioData && usuarioData.id_cliente && String(usuarioData.id_cliente) === String(c.id_cliente))
+                    ? 'selected' : '' %>>
+              <%= c.nombre_cliente %>
+            </option>
+          <% }); %>
+        </select>
+      </label>
+
+      <div style="display:flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;">
         <button type="submit" class="btn btn-exito">
           <%= editar ? 'Actualizar Usuario' : 'Añadir Usuario' %>
         </button>
 
         <a href="/usuarios" class="btn btn-secundario">Cancelar</a>
-
-        <% if (editar) { %>
-          <form action="/usuarios/eliminar/<%= usuarioData.id_usuario %>"
-                method="POST"
-                style="display:inline;"
-                onsubmit="return confirm('¿Eliminar este usuario?');">
-          </form>
-        <% } %>
       </div>
 
     </form>

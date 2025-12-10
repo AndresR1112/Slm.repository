@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Panel 3PL - Sologmedic</title>
+  <link rel="stylesheet" href="/estilos.css" />
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+</head>
+<body>
+
+  <!-- NAV 3PL -->
+  <nav class="nav">
+    <a href="/cliente" class="active">Resumen 3PL</a>
+    <a href="/cliente/entradas">Entradas</a>
+    <a href="/cliente/inventario">Inventario</a>
+    <a href="/cliente/salidas">Salidas</a>
+  </nav>
+
+  <!-- CONTENEDOR PRINCIPAL -->
+  <div class="contenedor">
+    <h2>Panel 3PL</h2>
+    <p>
+      Bienvenido
+      <strong><%= usuario ? (usuario.nombreCompleto || usuario.userName || usuario.username) : '' %></strong>.
+      Desde este panel podrás consultar tus <strong>entradas</strong>, <strong>inventario</strong> y
+      <strong>salidas</strong> administradas por Sologmedic.
+    </p>
+
+    <div style="display:flex; gap:1rem; margin-top:1.5rem; flex-wrap:wrap;">
+      <div style="
+        flex:1 1 200px;
+        padding:1rem;
+        border-radius:10px;
+        background:#e5efff;
+        text-align:center;
+        box-shadow:0 2px 8px rgba(0,0,0,0.05);
+      ">
+        <h3 style="margin:0 0 .5rem 0; color:#4c6ca0;">Registros de inventario</h3>
+        <p style="font-size:2rem; margin:0; font-weight:bold;">
+          <%= resumen && resumen.total_registros ? resumen.total_registros : 0 %>
+        </p>
+      </div>
+
+      <div style="
+        flex:1 1 200px;
+        padding:1rem;
+        border-radius:10px;
+        background:#e5efff;
+        text-align:center;
+        box-shadow:0 2px 8px rgba(0,0,0,0.05);
+      ">
+        <h3 style="margin:0 0 .5rem 0; color:#4c6ca0;">Piezas totales</h3>
+        <p style="font-size:2rem; margin:0; font-weight:bold;">
+          <%= resumen && resumen.total_piezas ? resumen.total_piezas : 0 %>
+        </p>
+      </div>
+    </div>
+
+    <div style="margin-top:2rem;">
+      <p>Puedes navegar a los módulos desde las pestañas superiores:</p>
+      <ul>
+        <li><strong>Entradas:</strong> historial de entradas de tus productos.</li>
+        <li><strong>Inventario:</strong> existencias por lote y caducidad.</li>
+        <li><strong>Salidas:</strong> movimientos de salida hacia tus clientes.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- BOTÓN FLOTANTE DE CERRAR SESIÓN -->
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
+
+</body>
+</html>

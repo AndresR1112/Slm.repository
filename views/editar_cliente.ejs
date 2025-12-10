@@ -8,6 +8,8 @@
     <%= editar ? 'Editar Cliente' : 'Nuevo Cliente' %>
   </title>
   <link rel="stylesheet" href="/estilos.css" />
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
 
 <body>
@@ -17,37 +19,81 @@
       <%= editar ? 'Editar Cliente' : 'Agregar Nuevo Cliente' %>
     </h2>
 
-    <form action="<%= editar ? ('/clientes/editar/' + cliente.Id) : '/clientes/nuevo' %>" method="POST"
-      style="display:flex; flex-direction: column; gap: 1rem; background-color:white; padding:2rem; border-radius:10px;">
+    <form
+      action="<%= editar ? ('/clientes/editar/' + cliente.Id) : '/clientes/nuevo' %>"
+      method="POST"
+      style="display:flex; flex-direction: column; gap: 1rem;
+             background-color:white; padding:2rem; border-radius:10px;">
 
+      <!-- Nombre -->
       <label for="Nombre">Nombre:</label>
-      <input type="text" name="Nombre" id="Nombre" value="<%= cliente && cliente.Nombre ? cliente.Nombre : '' %>"
+      <input
+        type="text"
+        name="Nombre"
+        id="Nombre"
+        value="<%= cliente?.Nombre || '' %>"
         required />
 
+      <!-- RFC -->
       <label for="RFC">RFC:</label>
-      <input type="text" name="RFC" id="RFC" value="<%= cliente && cliente.RFC ? cliente.RFC : '' %>" required />
-
-      <label for="Direccion">Dirección:</label>
-      <input type="text" name="Direccion" id="Direccion"
-        value="<%= cliente && cliente.Direccion ? cliente.Direccion : '' %>" required />
-
-      <label for="Telefono">Teléfono:</label>
-      <input type="text" name="Telefono" id="Telefono"
-        value="<%= cliente && cliente.Telefono ? cliente.Telefono : '' %>" required />
-
-      <label for="Correo">Correo:</label>
-      <input type="email" name="Correo" id="Correo" value="<%= cliente && cliente.Correo ? cliente.Correo : '' %>"
+      <input
+        type="text"
+        name="RFC"
+        id="RFC"
+        value="<%= cliente?.RFC || '' %>"
         required />
+
+      <!-- Dirección -->
+      <label for="Direccion">Dirección:</label>
+      <input
+        type="text"
+        name="Direccion"
+        id="Direccion"
+        value="<%= cliente?.Direccion || '' %>"
+        required />
+
+      <!-- Teléfono -->
+      <label for="Telefono">Teléfono:</label>
+      <input
+        type="text"
+        name="Telefono"
+        id="Telefono"
+        value="<%= cliente?.Telefono || '' %>"
+        required />
+
+      <!-- Correo -->
+      <label for="Correo">Correo:</label>
+      <input
+        type="email"
+        name="Correo"
+        id="Correo"
+        value="<%= cliente?.Correo || '' %>"
+        required />
+
+      <!-- ⭐ Checkbox 3PL (CORRECTO) -->
+      <div style="margin-top: 0.5rem;">
+        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+          <input
+            type="checkbox"
+            name="es_3pl"
+            <% if (cliente && (cliente.Es3PL == 1 || cliente.Es3PL === '1' || cliente.Es3PL === true)) { %>
+              checked
+            <% } %> 
+          />
+          <span>Cliente 3PL (usa servicios de almacenaje)</span>
+        </label>
+      </div>
 
       <!-- Botones -->
-      <div class="botones" style="display:flex; gap:1rem;">
+      <div class="botones" style="display:flex; gap:1rem; margin-top:1rem;">
         <button type="submit" class="btn btn-exito">
           <%= editar ? 'Guardar Cambios' : 'Registrar Cliente' %>
         </button>
         <a href="/clientes" class="btn btn-secundario">Cancelar</a>
       </div>
+
     </form>
   </main>
-</body>
 
+</body>
 </html>

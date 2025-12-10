@@ -6,6 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Usuarios | Inventario</title>
   <link rel="stylesheet" href="/estilos.css">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
 
 <body>
@@ -21,9 +23,8 @@
     const esFact        = (tipoNorm === 'facturacion');
     const esCliente     = (tipoNorm === 'cliente');
     const esDesempleado = (tipoNorm === 'desempleado');
-    const esCotizacion  = (tipoNorm === 'cotizacion');
 
-    // Permiso para ver módulo de usuarios (Cotizacion NO debe ver)
+    // Permiso para ver módulo de usuarios
     const puedeVerUsuarios = esAdmin || esRH;
   %>
 
@@ -55,7 +56,7 @@
   <% if (!puedeVerUsuarios) { %>
     <main class="contenedor">
       <h2>Usuarios</h2>
-      <p style="text-align:center; margin-top:2rem; opacity:.7%;">
+      <p style="text-align:center; margin-top:2rem; opacity:.7;">
         No tienes permisos para ver el módulo de usuarios.
       </p>
     </main>
@@ -108,11 +109,14 @@
                   var headerTexto = headerParts.join(' ');
                 %>
 
+                <!-- ============ CONTENEDOR FLEX COMO EN COTIZACIONES ============ -->
                 <div style="display:flex; gap:1rem; justify-content:center; align-items:center;">
 
                   <% if (esAdmin) { %>
+                    <!-- Editar -->
                     <a href="/usuarios/editar/<%= u.id_usuario %>" class="btn btn-secundario">Editar</a>
 
+                    <!-- Eliminar -->
                     <form action="/usuarios/eliminar/<%= u.id_usuario %>" 
                           method="POST" 
                           style="margin:0;"
@@ -122,6 +126,7 @@
                   <% } %>
 
                   <% if (esAdmin || esRH) { %>
+                    <!-- Archivos -->
                     <button type="button"
                             class="btn btn3 btn-archivos"
                             data-id="<%= u.id_usuario %>"
@@ -132,6 +137,7 @@
                   <% } %>
 
                 </div>
+                <!-- =============================================================== -->
 
                 <% if (esAdmin || esRH) { %>
                   <div id="archivos-template-<%= u.id_usuario %>" class="archivos-template" style="display:none;">
@@ -199,6 +205,7 @@
 
   <a href="/logout" class="btn-logout">Cerrar sesión</a>
 
+  <!-- Script panel Archivos -->
   <script>
     function abrirAdjuntos(id) {
       var tpl = document.getElementById('archivos-template-' + id);

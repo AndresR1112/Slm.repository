@@ -6,32 +6,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Inventario</title>
   <link rel="stylesheet" href="/estilos.css" />
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
 
 <body>
+
   <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
-  <%
-    // Normalizar tipo de usuario (igual que en usuarios)
-    const tipoRaw  = (usuario && usuario.tipo_usuario) ? usuario.tipo_usuario : '';
-    const tipoNorm = tipoRaw.toString().trim().toLowerCase().replace(/\s+/g, '_');
 
-    const esAdmin       = (tipoNorm === 'administrador');
-    const esEmpleado    = (tipoNorm === 'empleado');
-    const esAlmacen     = (tipoNorm === 'almacen');
-    const esRH          = (tipoNorm === 'recursos_humanos');
-    const esFact        = (tipoNorm === 'facturacion');
-    const esCliente     = (tipoNorm === 'cliente');
-    const esDesempleado = (tipoNorm === 'desempleado');
+  <% 
+    // ===== Normalizar tipo de usuario (igual que en usuarios) =====
+    var tipoRaw  = (usuario && usuario.tipo_usuario) ? usuario.tipo_usuario : '';
+    var tipoNorm = tipoRaw.toString().trim().toLowerCase().replace(/\s+/g, '_');
 
-    // 🔢 Helper para mostrar cantidades con separador de miles (sin decimales)
+    var esAdmin       = (tipoNorm === 'administrador');
+    var esEmpleado    = (tipoNorm === 'empleado');
+    var esAlmacen     = (tipoNorm === 'almacen');
+    var esRH          = (tipoNorm === 'recursos_humanos');
+    var esFact        = (tipoNorm === 'facturacion');
+    var esCliente     = (tipoNorm === 'cliente');
+    var esDesempleado = (tipoNorm === 'desempleado');
+
+    // Helper para mostrar cantidades con separador de miles (sin decimales)
     function formatoEnteroMX(n) {
       if (n === null || n === undefined) return '';
       return Number(n).toLocaleString('es-MX');
     }
   %>
-
-  <!-- mismo placeholder que en las demás vistas -->
-  <main style="padding: 2 rem; max-width: 2000px; margin:auto;"></main>
 
   <!-- NAVBAR (mismo patrón que usuarios / cotizaciones) -->
   <div class="nav">
@@ -69,7 +70,7 @@
       </p>
     <% } else { %>
 
-      <!-- Botón compartir inventario, alineado a la derecha como en otros módulos -->
+      <!-- Botón compartir inventario -->
       <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
         <a href="/reporte" target="_blank" class="btn btn3">
           📄 Compartir Inventario
@@ -92,15 +93,50 @@
 
         <tbody>
           <% if (inventario && inventario.length > 0) { %>
-            <% inventario.forEach(i => { %>
-              <tr>
-                <td><%= i.ProductoNombre %></td>
+            <% inventario.forEach(function(i) { 
+                 // 3PL: si tiene id_cliente_propietario, se pinta igual que Entradas / Clientes
+                 var es3PL = !!i.id_cliente_propietario;
+
+                 // Días restantes (puede venir con dos nombres)
+                 var dias = null;
+                 if (i.diasRestantes_inventario !== null && i.diasRestantes_inventario !== undefined && i.diasRestantes_inventario !== '') {
+                   dias = i.diasRestantes_inventario;
+                 } else if (i.DiasRestantes !== null && i.DiasRestantes !== undefined && i.DiasRestantes !== '') {
+                   dias = i.DiasRestantes;
+                 }
+
+                 // Determinar clase y texto de estado según días
+                 var claseEstado = '';
+                 var textoEstado = '';
+
+                 if (dias === null || dias === undefined || dias === '') {
+                   claseEstado = '';
+                   textoEstado = '-';
+                 } else if (Number(dias) < 0) {
+                   claseEstado = 'estado-rojo';
+                   textoEstado = 'Vencido';
+                 } else if (Number(dias) <= 30) {
+                   claseEstado = 'estado-amarillo';
+                   textoEstado = 'Próximo a vencer';
+                 } else {
+                   claseEstado = 'estado-verde';
+                   textoEstado = 'Vigente';
+                 }
+            %>
+              <tr class="<%= es3PL ? 'fila-3pl' : '' %>">
+                <td>
+                  <%= i.ProductoNombre %>
+                  <% if (es3PL) { %>
+                    <span class="badge-3pl">3PL</span>
+                  <% } %>
+                </td>
+
                 <td><%= i.lote_inventario %></td>
 
-                <!-- 🔢 Stock con separador de miles -->
+                <!-- Stock con separador de miles -->
                 <td><%= formatoEnteroMX(i.stock_inventario) %></td>
 
-                <!-- Fecha formateada de forma segura -->
+                <!-- Fecha de caducidad -->
                 <td>
                   <% if (i.caducidad_inventario) { %>
                     <%= new Date(i.caducidad_inventario).toLocaleDateString(
@@ -112,19 +148,21 @@
                   <% } %>
                 </td>
 
+                <!-- Días restantes -->
                 <td>
-                  <%= (i.diasRestantes_inventario ?? i.DiasRestantes ?? '-' ) %>
-                  <%= (i.diasRestantes_inventario ?? i.DiasRestantes) != null ? ' días' : '' %>
+                  <% if (dias !== null && dias !== undefined && dias !== '') { %>
+                    <%= dias %> días
+                  <% } else { %>
+                    -
+                  <% } %>
                 </td>
 
-                <td class="<%= 
-                  i.estadoDelProducto_inventario === 'Vigente' ? 'estado-verde' :
-                  i.estadoDelProducto_inventario === 'Próximo a vencer' ? 'estado-amarillo' :
-                  'estado-rojo' %>">
-                  <%= i.estadoDelProducto_inventario %>
+                <!-- Estado con color -->
+                <td class="<%= claseEstado %>">
+                  <%= textoEstado %>
                 </td>
               </tr>
-            <% }) %>
+            <% }); %>
           <% } else { %>
             <tr>
               <td colspan="6" style="text-align:center;">No hay productos en inventario</td>

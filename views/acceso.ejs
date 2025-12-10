@@ -6,6 +6,53 @@
     <title>Acceso | Inventario</title>
     <link rel="stylesheet" href="/estilos.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!DOCTYPE html>
+    <html lang="es">
+
+    <head>
+        <meta charset="UTF-8">
+        <title>Acceso | Inventario</title>
+        <link rel="stylesheet" href="/estilos.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="icon" type="image/png" href="/favicon.png">
+        <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    </head>
+
+<body>
+    <main style="padding: 2rem; max-width: 2000px; margin:auto;"></main>
+    <main style="display: flex; justify-content: center; align-items: center; min-height: 100vh;">
+        <div class="login-container" style="width: 100%; max-width: 400px;">
+            <h1>Acceso al sistema</h1>
+
+            <% if (error) { %>
+                <p style="color: red; text-align: center;">
+                    <%= error %>
+                </p>
+                <% } %>
+
+                    <!-- Mensaje informativo opcional -->
+                    <p style="text-align:center; color:#555; font-size:0.9rem; margin-bottom:1rem;">
+                        Ahora las contraseñas se guardan de forma segura 🔒
+                    </p>
+
+                    <form action="/login" method="POST">
+                        <div class="coolinput">
+                            <label for="usuario" class="text">Usuario</label>
+                            <input type="text" name="usuario" id="usuario" class="input" required>
+                        </div>
+
+                        <div class="coolinput">
+                            <label for="password" class="text">Contraseña</label>
+                            <input type="password" name="password" id="password" class="input" required>
+                        </div>
+
+                        <button type="submit" class="btn btn-exito">Entrar</button>
+                    </form>
+        </div>
+    </main>
+</body>
+
+</html>
 </head>
 
 <body>
@@ -15,27 +62,29 @@
             <h1>Acceso al sistema</h1>
 
             <% if (error) { %>
-                <p style="color: red; text-align: center;"><%= error %></p>
-            <% } %>
+                <p style="color: red; text-align: center;">
+                    <%= error %>
+                </p>
+                <% } %>
 
-            <!-- Mensaje informativo opcional -->
-            <p style="text-align:center; color:#555; font-size:0.9rem; margin-bottom:1rem;">
-                Ahora las contraseñas se guardan de forma segura 🔒
-            </p>
+                    <!-- Mensaje informativo opcional -->
+                    <p style="text-align:center; color:#555; font-size:0.9rem; margin-bottom:1rem;">
+                        Ahora las contraseñas se guardan de forma segura 🔒
+                    </p>
 
-            <form action="/login" method="POST">
-                <div class="coolinput">
-                    <label for="usuario" class="text">Usuario</label>
-                    <input type="text" name="usuario" id="usuario" class="input" required>
-                </div>
+                    <form action="/login" method="POST">
+                        <div class="coolinput">
+                            <label for="usuario" class="text">Usuario</label>
+                            <input type="text" name="usuario" id="usuario" class="input" required>
+                        </div>
 
-                <div class="coolinput">
-                    <label for="password" class="text">Contraseña</label>
-                    <input type="password" name="password" id="password" class="input" required>
-                </div>
+                        <div class="coolinput">
+                            <label for="password" class="text">Contraseña</label>
+                            <input type="password" name="password" id="password" class="input" required>
+                        </div>
 
-                <button type="submit" class="btn btn-exito">Entrar</button>
-            </form>
+                        <button type="submit" class="btn btn-exito">Entrar</button>
+                    </form>
         </div>
     </main>
 </body>

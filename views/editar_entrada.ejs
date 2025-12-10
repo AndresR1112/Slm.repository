@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title><%= editar ? 'Editar Entrada' : 'Nueva Entrada' %></title>
   <link rel="stylesheet" href="/estilos.css" />
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
 <body>
   <main class="contenedor">
@@ -36,6 +38,22 @@
         required
       />
 
+
+       <!-- PROPIETARIO 3PL (LABORATORIO / CLIENTE DUEÑO DEL PRODUCTO) -->
+      <label for="id_cliente_propietario">Laboratorio / Propietario del producto (3PL):</label>
+      <select name="id_cliente_propietario" id="id_cliente_propietario">
+        <option value="">-- Sin propietario (stock general) --</option>
+        <% if (typeof clientes !== 'undefined' && clientes && clientes.length) { %>
+          <% clientes.forEach(c => { %>
+            <option
+              value="<%= c.id_cliente %>"
+              <%= Number(entrada.id_cliente_propietario) === Number(c.id_cliente) ? 'selected' : '' %>>
+              <%= c.nombre_cliente %>
+            </option>
+          <% }) %>
+        <% } %>
+      </select>
+
       <!-- PRODUCTO -->
       <label for="Producto">Producto:</label>
 
@@ -57,6 +75,8 @@
           </option>
         <% }) %>
       </select>
+
+     
 
       <!-- Lote -->
       <label for="Lote">Lote:</label>

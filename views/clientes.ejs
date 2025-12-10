@@ -6,6 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Clientes</title>
   <link rel="stylesheet" href="/estilos.css" />
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
 
 <body>
@@ -23,7 +25,7 @@
     const esDesempleado = (tipo === 'desempleado');
     const esCotizacion  = (tipo === 'cotizacion');
 
-    // 👇 Admin + Almacén + Facturación pueden AGREGAR / EDITAR / ELIMINAR clientes
+    // Admin + Almacén + Facturación pueden AGREGAR / EDITAR / ELIMINAR clientes
     const puedeGestionarClientes = esAdmin || esAlmacen || esFact;
   %>
 
@@ -58,7 +60,7 @@
     <h2>Listado de Clientes</h2>
 
     <% if (esDesempleado || esCliente) { %>
-      <p style="text-align:center; margin-top:2rem; opacity:.7%;">
+      <p style="text-align:center; margin-top:2rem; opacity:.7;">
         No tienes permisos para ver el listado de clientes.
       </p>
     <% } else { %>
@@ -69,7 +71,7 @@
           <a href="/clientes/nuevo" class="btn">Agregar Cliente</a>
         <% } %>
 
-        <!-- Exportar Excel: cualquiera que vea la lista lo puede usar -->
+        <!-- Exportar Excel -->
         <a href="/clientes/exportar" class="btn btn3">
           Exportar a Excel
         </a>
@@ -89,12 +91,23 @@
         <tbody>
           <% if (!clientes || clientes.length === 0) { %>
             <tr>
-              <td colspan="6" style="text-align:center; opacity:.7%;">No hay clientes registrados</td>
+              <td colspan="6" style="text-align:center; opacity:.7;">No hay clientes registrados</td>
             </tr>
           <% } else { %>
-            <% clientes.forEach(c => { %>
-              <tr>
-                <td><%= c.Nombre %></td>
+            <% clientes.forEach(c => { 
+                 const es3plCliente =
+                   c.Es3PL === 1 ||
+                   c.Es3PL === '1' ||
+                   c.Es3PL === true ||
+                   c.Es3PL === 'true';
+            %>
+              <tr class="<%= es3plCliente ? 'fila-3pl' : '' %>">
+                <td>
+                  <%= c.Nombre %>
+                  <% if (es3plCliente) { %>
+                    <span class="badge-3pl">3PL</span>
+                  <% } %>
+                </td>
                 <td><%= c.RFC %></td>
                 <td><%= c.Direccion %></td>
                 <td><%= c.Telefono %></td>
@@ -124,5 +137,6 @@
   </main>
 
   <a href="/logout" class="btn-logout">Cerrar sesión</a>
+
 </body>
 </html>

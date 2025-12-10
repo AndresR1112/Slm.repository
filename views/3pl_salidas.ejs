@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Salidas 3PL</title>
+  <link rel="stylesheet" href="/estilos.css" />
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+</head>
+<body>
+
+  <nav class="nav">
+    <a href="/cliente">Resumen 3PL</a>
+    <a href="/cliente/entradas">Entradas</a>
+    <a href="/cliente/inventario">Inventario</a>
+    <a href="/cliente/salidas" class="active">Salidas</a>
+  </nav>
+
+  <%
+    const sel  = filtrosSeleccionados || {};
+    const qVal = (typeof q !== 'undefined' && q !== null) ? q : (sel.q || '');
+    const qsExp = typeof qsExport !== 'undefined' && qsExport ? qsExport : '';
+  %>
+
+  <!-- CONTENEDOR PRINCIPAL -->
+  <main id="contenedorFacturacion" class="contenedor facturacion-layout">
+    <section class="facturacion-main">
+
+      <div class="facturacion-header">
+        <h2>Historial de salidas</h2>
+      </div>
+
+      <p>Aquí puedes visualizar las salidas de tus productos hacia tus clientes destino.</p>
+
+      <!-- ===== BÚSQUEDA GENERAL + BOTÓN FILTROS ===== -->
+      <form method="GET" action="/cliente/salidas" class="form-inline facturacion-busqueda">
+        <div class="campo-busqueda">
+          <label for="q">Búsqueda general</label>
+          <input
+            type="text"
+            id="q"
+            name="q"
+            placeholder="Orden, producto, lote, cliente..."
+            value="<%= qVal || '' %>">
+        </div>
+
+        <div class="botones">
+          <button type="submit" class="btn">Buscar</button>
+          <button type="button" id="toggleFiltros" class="btn btn3">Filtros</button>
+          <a href="/cliente/salidas" class="btn btn-secundario">Limpiar</a>
+        </div>
+      </form>
+
+      <!-- BOTÓN EXPORTAR A EXCEL (debajo del buscador) -->
+      <div class="botones" style="margin-bottom: 1rem;">
+        <a href="/cliente/salidas/exportar<%= qsExp %>" class="btn btn3">
+          Exportar salidas a Excel
+        </a>
+      </div>
+
+      <!-- TABLA SALIDAS -->
+      <table>
+        <thead>
+          <tr>
+            <th>Orden de compra</th>
+            <th>Fecha salida</th>
+            <th>Producto</th>
+            <th>Lote</th>
+            <th>Cantidad</th>
+            <th>Cliente destino</th>
+            <th>Total facturado</th>
+            <th>Folio factura</th>
+            <th>Documentos</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!salidas || salidas.length === 0) { %>
+            <tr>
+              <td colspan="9">No hay salidas registradas.</td>
+            </tr>
+          <% } else { %>
+            <% salidas.forEach(function(s) { %>
+              <tr>
+                <td><%= s.ordenDeCompra_salida || '' %></td>
+
+                <!-- Fecha DD/MM/AAAA -->
+                <td>
+                  <% if (s.fecha_salida) { %>
+                    <%= new Date(s.fecha_salida).toLocaleDateString(
+                          "es-MX",
+                          { day: "2-digit", month: "2-digit", year: "numeric" }
+                        ) %>
+                  <% } else { %>
+                    -
+                  <% } %>
+                </td>
+
+                <!-- Producto: (CLAVE) Nombre -->
+                <td>
+                  <%
+                    const claveProd  = s.clave_catalogo || '';
+                    const nombreProd = s.nombreProdu_catalogo || '';
+                  %>
+                  <% if (claveProd) { %>
+                    (<%= claveProd %>) <%= nombreProd %>
+                  <% } else { %>
+                    <%= nombreProd %>
+                  <% } %>
+                </td>
+
+                <td><%= s.lote || '' %></td>
+                <td><%= s.cantidad %></td>
+                <td><%= s.cliente_destino || '' %></td>
+
+                <td>
+                  <% if (s.totalFacturado_salida != null) { %>
+                    <%= s.totalFacturado_salida.toFixed
+                          ? s.totalFacturado_salida.toFixed(2)
+                          : s.totalFacturado_salida %>
+                  <% } else { %>
+                    -
+                  <% } %>
+                </td>
+
+                <td><%= s.folioDeFacturacion_salida || '' %></td>
+
+                <!-- 📎 Documentos (botón siempre, como en ENTRADAS) -->
+                <td class="col-acciones">
+                  <%
+                    var adj = [];
+                    if (typeof adjuntosPorSalida !== 'undefined'
+                        && adjuntosPorSalida
+                        && adjuntosPorSalida[s.id_salida]) {
+                      adj = adjuntosPorSalida[s.id_salida];
+                    }
+
+                    var headerParts = [];
+
+                    if (s.id_salida)             headerParts.push('Salida #' + s.id_salida);
+                    if (s.fecha_salida) {
+                      var fTxt = new Date(s.fecha_salida).toISOString().slice(0,10);
+                      headerParts.push('Fecha: ' + fTxt);
+                    }
+                    if (claveProd)               headerParts.push('Producto: (' + claveProd + ') ' + nombreProd);
+                    if (s.lote)                  headerParts.push('Lote: ' + s.lote);
+                    if (s.cantidad != null)      headerParts.push('Cantidad: ' + s.cantidad);
+                    if (s.cliente_destino)       headerParts.push('Cliente: ' + s.cliente_destino);
+
+                    var headerTexto = headerParts.join(' | ');
+                  %>
+
+                  <button
+                    type="button"
+                    class="btn btn3 btn-archivos"
+                    data-tipo="salida"
+                    data-id="<%= s.id_salida %>"
+                    data-header="<%= headerTexto %>"
+                    onclick="abrirAdjuntos3pl('salida', <%= s.id_salida %>)">
+                    Archivos<%= (adj && adj.length > 0) ? ' (' + adj.length + ')' : '' %>
+                  </button>
+
+                  <!-- Plantilla oculta con la lista de archivos (solo descarga) -->
+                  <div
+                    id="archivos-template-salida-<%= s.id_salida %>"
+                    class="archivos-template"
+                    style="display:none;">
+                    <% if (!adj || adj.length === 0) { %>
+                      <p class="archivos-vacio">No hay archivos adjuntos.</p>
+                    <% } else { %>
+                      <ul class="archivos-lista">
+                        <% adj.forEach(function (a) { %>
+                          <li class="archivos-item">
+                            <a
+                              href="/adjuntos/descargar/<%= a.id_archivo %>"
+                              class="archivo-nombre"
+                              title="<%= a.nombre_original %>">
+                              <%= a.nombre_original %>
+                            </a>
+                          </li>
+                        <% }); %>
+                      </ul>
+                    <% } %>
+                  </div>
+                </td>
+              </tr>
+            <% }); %>
+          <% } %>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- ===== PANEL LATERAL DE FILTROS (SALIDAS) ===== -->
+  <div id="filtrosOverlay" class="filtros-overlay">
+    <div class="filtros-panel">
+      <div class="filtros-header">
+        <h3>Filtros de salidas</h3>
+        <button type="button" id="cerrarFiltros" class="btn btn-secundario btn-sm">X</button>
+      </div>
+
+      <form method="GET" action="/cliente/salidas" class="form-filtros">
+        <!-- mantener búsqueda general -->
+        <input type="hidden" name="q" value="<%= qVal || '' %>">
+
+        <!-- Orden de compra -->
+        <div class="fila">
+          <label for="orden">Orden de compra</label>
+          <select id="orden" name="orden">
+            <option value="">Todas</option>
+            <% (filtrosOrdenes || []).forEach(o => { %>
+              <option value="<%= o.orden %>"
+                <%= String(sel.orden || '') === String(o.orden) ? 'selected' : '' %>>
+                <%= o.orden %>
+              </option>
+            <% }) %>
+          </select>
+        </div>
+
+        <!-- Producto -->
+        <div class="fila">
+          <label for="producto">Producto</label>
+          <select id="producto" name="producto">
+            <option value="">Todos</option>
+            <% (filtrosProductos || []).forEach(p => { %>
+              <option value="<%= p.id_catalogo %>"
+                <%= String(sel.producto || '') === String(p.id_catalogo) ? 'selected' : '' %>>
+                (<%= p.clave_catalogo %>) <%= p.nombreProdu_catalogo %>
+              </option>
+            <% }) %>
+          </select>
+        </div>
+
+        <!-- Lote (depende de producto) -->
+        <div class="fila">
+          <label for="lote">Lote</label>
+          <select
+            id="lote"
+            name="lote"
+            data-lote-seleccionado="<%= sel.lote ? String(sel.lote) : '' %>"
+          >
+            <option value="">Todos</option>
+            <% (filtrosLotes || []).forEach(l => { %>
+              <option
+                value="<%= l.lote %>"
+                data-producto-id="<%= l.id_catalogo || l.producto_FKinventario || l.Producto || l.producto || '' %>"
+                <%= String(sel.lote || '') === String(l.lote) ? 'selected' : '' %>>
+                <%= l.lote %>
+              </option>
+            <% }) %>
+          </select>
+        </div>
+
+        <!-- Cantidad -->
+        <div class="fila">
+          <label for="cantidad">Cantidad</label>
+          <select id="cantidad" name="cantidad">
+            <option value="">Todas</option>
+            <% (filtrosCantidades || []).forEach(c => { %>
+              <option value="<%= c.cantidad %>"
+                <%= String(sel.cantidad || '') === String(c.cantidad) ? 'selected' : '' %>>
+                <%= c.cantidad %>
+              </option>
+            <% }) %>
+          </select>
+        </div>
+
+        <!-- Cliente destino -->
+        <div class="fila">
+          <label for="cliente_destino">Cliente destino</label>
+          <select id="cliente_destino" name="cliente_destino">
+            <option value="">Todos</option>
+            <% (filtrosClientesDestino || []).forEach(cd => { %>
+              <option value="<%= cd.id_cliente %>"
+                <%= String(sel.cliente_destino || '') === String(cd.id_cliente) ? 'selected' : '' %>>
+                <%= cd.nombre_cliente %>
+              </option>
+            <% }) %>
+          </select>
+        </div>
+
+        <div class="botones">
+          <button type="submit" class="btn">Aplicar filtros</button>
+          <a href="/cliente/salidas" class="btn btn-secundario">Limpiar todo</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Panel lateral para Archivos (solo lectura, compartido con ENTRADAS / SALIDAS) -->
+  <div id="adjuntosOverlay" class="adj-overlay">
+    <div class="adj-panel">
+      <div class="adj-header">
+        <h3 id="adj-header-text">Archivos</h3>
+        <button type="button" class="adj-close" onclick="cerrarAdjuntos3pl()">✖</button>
+      </div>
+      <div id="adj-body" class="adj-body"></div>
+    </div>
+  </div>
+
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
+
+  <!-- Script filtros + dependencia PRODUCTO–LOTE + panel Archivos -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var overlay    = document.getElementById('filtrosOverlay');
+      var btnToggle  = document.getElementById('toggleFiltros');
+      var btnCerrar  = document.getElementById('cerrarFiltros');
+      var contenedor = document.getElementById('contenedorFacturacion');
+
+      function abrirFiltros() {
+        if (!overlay || !contenedor) return;
+        overlay.classList.add('activo');
+        contenedor.classList.add('filtros-abiertos');
+        if (btnToggle) btnToggle.textContent = 'Ocultar filtros';
+      }
+
+      function cerrarFiltros() {
+        if (!overlay || !contenedor) return;
+        overlay.classList.remove('activo');
+        contenedor.classList.remove('filtros-abiertos');
+        if (btnToggle) btnToggle.textContent = 'Filtros';
+      }
+
+      if (btnToggle && contenedor) {
+        btnToggle.addEventListener('click', function () {
+          if (overlay.classList.contains('activo')) {
+            cerrarFiltros();
+          } else {
+            abrirFiltros();
+          }
+        });
+      }
+
+      if (btnCerrar) {
+        btnCerrar.addEventListener('click', cerrarFiltros);
+      }
+
+      if (overlay) {
+        overlay.addEventListener('click', function (e) {
+          if (e.target === overlay) {
+            cerrarFiltros();
+          }
+        });
+      }
+
+      // ===== Dependencia PRODUCTO -> LOTE (DOM) =====
+      var selProd = document.getElementById('producto');
+      var selLote = document.getElementById('lote');
+
+      if (selLote) {
+        var opcionesOriginales = Array.from(selLote.querySelectorAll('option'));
+        var loteSelServidor = selLote.getAttribute('data-lote-seleccionado') || '';
+
+        function repoblarLotes() {
+          var prodVal = selProd ? selProd.value : '';
+          selLote.innerHTML = '';
+
+          var optTodos = document.createElement('option');
+          optTodos.value = '';
+          optTodos.textContent = 'Todos';
+          selLote.appendChild(optTodos);
+
+          opcionesOriginales.slice(1).forEach(function (opt) {
+            var prodIdDeLote = opt.getAttribute('data-producto-id') || '';
+            if (!prodVal || String(prodIdDeLote) === String(prodVal)) {
+              selLote.appendChild(opt);
+            }
+          });
+
+          if (loteSelServidor && selLote.querySelector('option[value="' + loteSelServidor + '"]')) {
+            selLote.value = loteSelServidor;
+          }
+        }
+
+        repoblarLotes();
+
+        if (selProd) {
+          selProd.addEventListener('change', function () {
+            loteSelServidor = '';
+            repoblarLotes();
+          });
+        }
+      }
+    });
+
+    // ======== Panel Archivos 3PL (solo lectura, igual que ENTRADAS) ========
+    function abrirAdjuntos3pl(tipo, id) {
+      var tpl = document.getElementById('archivos-template-' + tipo + '-' + id);
+      if (!tpl) return;
+
+      var overlay  = document.getElementById('adjuntosOverlay');
+      var headerEl = document.getElementById('adj-header-text');
+      var bodyEl   = document.getElementById('adj-body');
+
+      var btn = document.querySelector('.btn-archivos[data-tipo="' + tipo + '"][data-id="' + id + '"]');
+      if (btn && btn.dataset.header) {
+        headerEl.textContent = btn.dataset.header;
+      } else {
+        headerEl.textContent = 'Archivos';
+      }
+
+      bodyEl.innerHTML = tpl.innerHTML;
+      overlay.classList.add('activo');
+    }
+
+    function cerrarAdjuntos3pl() {
+      var overlay = document.getElementById('adjuntosOverlay');
+      if (overlay) overlay.classList.remove('activo');
+    }
+
+    // Cerrar si se hace clic fuera del panel de archivos
+    document.addEventListener('click', function (e) {
+      var overlay = document.getElementById('adjuntosOverlay');
+      if (!overlay || !overlay.classList.contains('activo')) return;
+
+      var dentroPanel   = e.target.closest('.adj-panel');
+      var pulsandoBoton = e.target.closest('.btn-archivos');
+      if (!dentroPanel && !pulsandoBoton) {
+        cerrarAdjuntos3pl();
+      }
+    });
+  </script>
+
+</body>
+</html>

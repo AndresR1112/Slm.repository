@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Entradas 3PL</title>
+  <link rel="stylesheet" href="/estilos.css" />
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+</head>
+
+<body>
+
+  <!-- NAV 3PL -->
+  <nav class="nav">
+    <a href="/cliente">Resumen 3PL</a>
+    <a href="/cliente/entradas" class="active">Entradas</a>
+    <a href="/cliente/inventario">Inventario</a>
+    <a href="/cliente/salidas">Salidas</a>
+  </nav>
+
+  <%
+    const sel  = filtrosSeleccionados || {};
+    const qVal = (typeof q !== 'undefined' && q !== null) ? q : (sel.q || '');
+    const mesesNombres = [
+      '',
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+  %>
+
+  <!-- CONTENEDOR PRINCIPAL -->
+  <main id="contenedorFacturacion" class="contenedor facturacion-layout">
+    <section class="facturacion-main">
+
+      <div class="facturacion-header">
+        <h2>Historial de entradas</h2>
+      </div>
+
+      <p>Aquí puedes visualizar las entradas de tus productos al almacén de Sologmedic.</p>
+
+      <!-- ===== BÚSQUEDA GENERAL + BOTÓN FILTROS ===== -->
+      <form method="GET" action="/cliente/entradas" class="form-inline facturacion-busqueda">
+        <div class="campo-busqueda">
+          <label for="q">Búsqueda general</label>
+          <input
+            type="text"
+            id="q"
+            name="q"
+            placeholder="Producto, lote, cantidad..."
+            value="<%= qVal || '' %>">
+        </div>
+
+        <div class="botones">
+          <button type="submit" class="btn">Buscar</button>
+          <button type="button" id="toggleFiltros" class="btn btn3">Filtros</button>
+          <a href="/cliente/entradas" class="btn btn-secundario">Limpiar</a>
+        </div>
+      </form>
+
+      <!-- 🔽 BOTÓN EXPORTAR (debajo del buscador) -->
+      <div class="botones" style="margin-bottom: 1rem;">
+        <a
+          href="/cliente/entradas/exportar<%= (typeof qsExport !== 'undefined' && qsExport) ? qsExport : '' %>"
+          class="btn btn3">
+          Exportar entradas a Excel
+        </a>
+      </div>
+
+      <!-- ===== TABLA ENTRADAS ===== -->
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha de entrada</th>
+            <th>Producto</th>
+            <th>Lote</th>
+            <th>Caducidad</th>
+            <th>Cantidad</th>
+            <th>Costo total</th>
+            <th>Documentos</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!entradas || entradas.length === 0) { %>
+            <tr>
+              <td colspan="7">No hay entradas registradas.</td>
+            </tr>
+          <% } else { %>
+            <% entradas.forEach(function(e) { %>
+              <tr>
+                <!-- Fecha DD/MM/AAAA -->
+                <td>
+                  <% if (e.fechaDeEntrada) { %>
+                    <%= new Date(e.fechaDeEntrada).toLocaleDateString(
+                          'es-MX',
+                          { day: '2-digit', month: '2-digit', year: 'numeric' }
+                        ) %>
+                  <% } else { %>
+                    -
+                  <% } %>
+                </td>
+
+                <!-- Producto: (CLAVE) Nombre -->
+                <td>
+                  <%
+                    const claveProd  = e.clave_catalogo       || '';
+                    const nombreProd = e.nombreProdu_catalogo || '';
+                  %>
+                  <% if (claveProd) { %>
+                    (<%= claveProd %>) <%= nombreProd %>
+                  <% } else { %>
+                    <%= nombreProd %>
+                  <% } %>
+                </td>
+
+                <td><%= e.lote || '' %></td>
+
+                <!-- Caducidad -->
+                <td>
+                  <% if (e.caducidad) { %>
+                    <%= new Date(e.caducidad).toLocaleDateString(
+                          'es-MX',
+                          { day: '2-digit', month: '2-digit', year: 'numeric' }
+                        ) %>
+                  <% } else { %>
+                    -
+                  <% } %>
+                </td>
+
+                <td><%= e.cantidad %></td>
+
+                <td>
+                  <% if (e.costoTotal_entrada != null) { %>
+                    <%= e.costoTotal_entrada.toFixed
+                          ? e.costoTotal_entrada.toFixed(2)
+                          : e.costoTotal_entrada %>
+                  <% } else { %>
+                    -
+                  <% } %>
+                </td>
+
+                <!-- 📎 Documentos -->
+                <td class="col-acciones">
+                  <%
+                    var adj = [];
+                    if (typeof adjuntosPorEntrada !== 'undefined'
+                        && adjuntosPorEntrada
+                        && adjuntosPorEntrada[e.id_entrada]) {
+                      adj = adjuntosPorEntrada[e.id_entrada];
+                    }
+
+                    var headerParts = [];
+
+                    if (e.id_entrada)       headerParts.push('Entrada #' + e.id_entrada);
+                    if (e.fechaDeEntrada) {
+                      var fTxt = new Date(e.fechaDeEntrada).toISOString().slice(0,10);
+                      headerParts.push('Fecha: ' + fTxt);
+                    }
+                    if (claveProd)          headerParts.push('Producto: (' + claveProd + ') ' + nombreProd);
+                    if (e.lote)             headerParts.push('Lote: ' + e.lote);
+                    if (e.cantidad != null) headerParts.push('Cantidad: ' + e.cantidad);
+
+                    var headerTexto = headerParts.join(' | ');
+                  %>
+
+                  <button
+                    type="button"
+                    class="btn btn3 btn-archivos"
+                    data-tipo="entrada"
+                    data-id="<%= e.id_entrada %>"
+                    data-header="<%= headerTexto %>"
+                    onclick="abrirAdjuntos3pl('entrada', <%= e.id_entrada %>)">
+                    Archivos<%= (adj && adj.length > 0) ? ' (' + adj.length + ')' : '' %>
+                  </button>
+
+                  <!-- Plantilla oculta con la lista de archivos (solo descarga) -->
+                  <div
+                    id="archivos-template-entrada-<%= e.id_entrada %>"
+                    class="archivos-template"
+                    style="display:none;">
+
+                    <% if (!adj || adj.length === 0) { %>
+                      <p class="archivos-vacio">No hay archivos adjuntos.</p>
+                    <% } else { %>
+                      <ul class="archivos-lista">
+                        <% adj.forEach(function (a) { %>
+                          <li class="archivos-item">
+                            <a
+                              href="/adjuntos/descargar/<%= a.id_archivo %>"
+                              class="archivo-nombre"
+                              title="<%= a.nombre_original %>">
+                              <%= a.nombre_original %>
+                            </a>
+                          </li>
+                        <% }); %>
+                      </ul>
+                    <% } %>
+                  </div>
+                </td>
+              </tr>
+            <% }); %>
+          <% } %>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- ===== PANEL LATERAL DE FILTROS (ENTRADAS) ===== -->
+  <div id="filtrosOverlay" class="filtros-overlay">
+    <div class="filtros-panel">
+      <div class="filtros-header">
+        <h3>Filtros de entradas</h3>
+        <button type="button" id="cerrarFiltros" class="btn btn-secundario btn-sm">X</button>
+      </div>
+
+      <form method="GET" action="/cliente/entradas" class="form-filtros">
+        <!-- mantener búsqueda general -->
+        <input type="hidden" name="q" value="<%= qVal || '' %>">
+
+        <!-- Mes -->
+        <div class="fila">
+          <label for="mes">Mes</label>
+          <select id="mes" name="mes">
+            <option value="">Todos</option>
+            <% (filtrosFecha || []).forEach(f => { %>
+              <option
+                value="<%= f.mes %>"
+                <%= String(sel.mes || '') === String(f.mes) ? 'selected' : '' %>>
+                <%= mesesNombres[f.mes] %> (<%= f.anio %>)
+              </option>
+            <% }) %>
+          </select>
+        </div>
+
+        <!-- Año -->
+        <div class="fila">
+          <label for="anio">Año</label>
+          <select id="anio" name="anio">
+            <option value="">Todos</option>
+            <%
+              const aniosSet = new Set();
+              (filtrosFecha || []).forEach(f => aniosSet.add(f.anio));
+              Array.from(aniosSet).sort((a,b)=>b-a).forEach(an => {
+            %>
+              <option
+                value="<%= an %>"
+                <%= String(sel.anio || '') === String(an) ? 'selected' : '' %>>
+                <%= an %>
+              </option>
+            <% }); %>
+          </select>
+        </div>
+
+        <!-- Producto -->
+        <div class="fila">
+          <label for="producto">Producto</label>
+          <select id="producto" name="producto">
+            <option value="">Todos</option>
+            <% (filtrosProductos || []).forEach(p => { %>
+              <option
+                value="<%= p.id_catalogo %>"
+                <%= String(sel.producto || '') === String(p.id_catalogo) ? 'selected' : '' %>>
+                (<%= p.clave_catalogo %>) <%= p.nombreProdu_catalogo %>
+              </option>
+            <% }) %>
+          </select>
+        </div>
+
+        <!-- Lote (depende de producto) -->
+        <div class="fila">
+          <label for="lote">Lote</label>
+          <select
+            id="lote"
+            name="lote"
+            data-lote-seleccionado="<%= sel.lote ? String(sel.lote) : '' %>">
+            <option value="">Todos</option>
+            <% (filtrosLotes || []).forEach(l => { %>
+              <option
+                value="<%= l.lote %>"
+                data-producto-id="<%= l.id_catalogo || l.producto_FKinventario || l.Producto || l.producto || '' %>"
+                <%= String(sel.lote || '') === String(l.lote) ? 'selected' : '' %>>
+                <%= l.lote %>
+              </option>
+            <% }) %>
+          </select>
+        </div>
+
+        <!-- Cantidad (depende de producto y lote) -->
+        <div class="fila">
+          <label for="cantidad">Cantidad</label>
+          <select
+            id="cantidad"
+            name="cantidad"
+            data-cantidad-seleccionada="<%= sel.cantidad ? String(sel.cantidad) : '' %>">
+            <option value="">Todas</option>
+            <% (filtrosCantidades || []).forEach(c => { %>
+              <option
+                value="<%= c.cantidad %>"
+                data-producto-id="<%= c.id_catalogo || c.producto_FKinventario || c.Producto || c.producto || '' %>"
+                data-lote="<%= c.lote || '' %>"
+                <%= String(sel.cantidad || '') === String(c.cantidad) ? 'selected' : '' %>>
+                <%= c.cantidad %>
+              </option>
+            <% }) %>
+          </select>
+        </div>
+
+        <div class="botones">
+          <button type="submit" class="btn">Aplicar filtros</button>
+          <a href="/cliente/entradas" class="btn btn-secundario">Limpiar todo</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Panel lateral para Archivos (solo lectura) -->
+  <div id="adjuntosOverlay" class="adj-overlay">
+    <div class="adj-panel">
+      <div class="adj-header">
+        <h3 id="adj-header-text">Archivos</h3>
+        <button type="button" class="adj-close" onclick="cerrarAdjuntos3pl()">✖</button>
+      </div>
+      <div id="adj-body" class="adj-body"></div>
+    </div>
+  </div>
+
+  <!-- BOTÓN FLOTANTE DE CERRAR SESIÓN -->
+  <a href="/logout" class="btn-logout">Cerrar sesión</a>
+
+  <!-- Script mostrar/ocultar filtros + dependencias PRODUCTO–LOTE–CANTIDAD -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var overlay    = document.getElementById('filtrosOverlay');
+      var btnToggle  = document.getElementById('toggleFiltros');
+      var btnCerrar  = document.getElementById('cerrarFiltros');
+      var contenedor = document.getElementById('contenedorFacturacion');
+
+      function abrirFiltros() {
+        if (!overlay || !contenedor) return;
+        overlay.classList.add('activo');
+        contenedor.classList.add('filtros-abiertos');
+        if (btnToggle) btnToggle.textContent = 'Ocultar filtros';
+      }
+
+      function cerrarFiltros() {
+        if (!overlay || !contenedor) return;
+        overlay.classList.remove('activo');
+        contenedor.classList.remove('filtros-abiertos');
+        if (btnToggle) btnToggle.textContent = 'Filtros';
+      }
+
+      if (btnToggle && contenedor) {
+        btnToggle.addEventListener('click', function () {
+          if (overlay.classList.contains('activo')) {
+            cerrarFiltros();
+          } else {
+            abrirFiltros();
+          }
+        });
+      }
+
+      if (btnCerrar) {
+        btnCerrar.addEventListener('click', cerrarFiltros);
+      }
+
+      if (overlay) {
+        overlay.addEventListener('click', function (e) {
+          if (e.target === overlay) {
+            cerrarFiltros();
+          }
+        });
+      }
+
+      // ===== Dependencias PRODUCTO -> LOTE -> CANTIDAD =====
+      var selProd = document.getElementById('producto');
+      var selLote = document.getElementById('lote');
+      var selCant = document.getElementById('cantidad');
+
+      // --- Lotes dependientes de producto ---
+      if (selLote) {
+        var opcionesLoteOriginales = Array.from(selLote.querySelectorAll('option'));
+        var loteSelServidor = selLote.getAttribute('data-lote-seleccionado') || '';
+
+        function repoblarLotes() {
+          var prodVal = selProd ? selProd.value : '';
+
+          selLote.innerHTML = '';
+          var optTodos = document.createElement('option');
+          optTodos.value = '';
+          optTodos.textContent = 'Todos';
+          selLote.appendChild(optTodos);
+
+          opcionesLoteOriginales.slice(1).forEach(function (opt) {
+            var prodIdDeLote = opt.getAttribute('data-producto-id') || '';
+            if (!prodVal || String(prodIdDeLote) === String(prodVal)) {
+              selLote.appendChild(opt);
+            }
+          });
+
+          if (loteSelServidor && selLote.querySelector('option[value="' + loteSelServidor + '"]')) {
+            selLote.value = loteSelServidor;
+          }
+        }
+
+        repoblarLotes();
+
+        if (selProd) {
+          selProd.addEventListener('change', function () {
+            loteSelServidor = '';
+            repoblarLotes();
+            repoblarCantidades(); // también actualizar cantidades
+          });
+        }
+      }
+
+      // --- Cantidades dependientes de producto y lote ---
+      if (selCant) {
+        var opcionesCantOriginales = Array.from(selCant.querySelectorAll('option'));
+        var cantSelServidor = selCant.getAttribute('data-cantidad-seleccionada') || '';
+
+        function repoblarCantidades() {
+          var prodVal = selProd ? selProd.value : '';
+          var loteVal = selLote ? selLote.value : '';
+
+          selCant.innerHTML = '';
+          var optTodas = document.createElement('option');
+          optTodas.value = '';
+          optTodas.textContent = 'Todas';
+          selCant.appendChild(optTodas);
+
+          opcionesCantOriginales.slice(1).forEach(function (opt) {
+            var prodIdDeCantidad = opt.getAttribute('data-producto-id') || '';
+            var loteDeCantidad   = opt.getAttribute('data-lote') || '';
+
+            var coincideProd = !prodVal || String(prodIdDeCantidad) === String(prodVal);
+            var coincideLote = !loteVal || String(loteDeCantidad) === String(loteVal);
+
+            if (coincideProd && coincideLote) {
+              selCant.appendChild(opt);
+            }
+          });
+
+          if (cantSelServidor && selCant.querySelector('option[value="' + cantSelServidor + '"]')) {
+            selCant.value = cantSelServidor;
+          }
+        }
+
+        repoblarCantidades();
+
+        if (selLote) {
+          selLote.addEventListener('change', function () {
+            cantSelServidor = '';
+            repoblarCantidades();
+          });
+        }
+        if (selProd) {
+          selProd.addEventListener('change', function () {
+            cantSelServidor = '';
+            repoblarCantidades();
+          });
+        }
+      }
+    });
+
+    // ======== Panel Archivos 3PL (solo lectura) ========
+    function abrirAdjuntos3pl(tipo, id) {
+      var tpl = document.getElementById('archivos-template-' + tipo + '-' + id);
+      if (!tpl) return;
+
+      var overlay  = document.getElementById('adjuntosOverlay');
+      var headerEl = document.getElementById('adj-header-text');
+      var bodyEl   = document.getElementById('adj-body');
+
+      var btn = document.querySelector('.btn-archivos[data-tipo="' + tipo + '"][data-id="' + id + '"]');
+      if (btn && btn.dataset.header) {
+        headerEl.textContent = btn.dataset.header;
+      } else {
+        headerEl.textContent = 'Archivos';
+      }
+
+      bodyEl.innerHTML = tpl.innerHTML;
+      overlay.classList.add('activo');
+    }
+
+    function cerrarAdjuntos3pl() {
+      var overlay = document.getElementById('adjuntosOverlay');
+      if (overlay) overlay.classList.remove('activo');
+    }
+
+    // Cerrar si se hace clic fuera del panel de archivos
+    document.addEventListener('click', function (e) {
+      var overlay = document.getElementById('adjuntosOverlay');
+      if (!overlay || !overlay.classList.contains('activo')) return;
+
+      var dentroPanel   = e.target.closest('.adj-panel');
+      var pulsandoBoton = e.target.closest('.btn-archivos');
+      if (!dentroPanel && !pulsandoBoton) {
+        cerrarAdjuntos3pl();
+      }
+    });
+  </script>
+
+</body>
+</html>

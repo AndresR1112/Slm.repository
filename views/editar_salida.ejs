@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title><%= salida.Id ? 'Editar Salida' : 'Nueva Salida' %></title>
   <link rel="stylesheet" href="/estilos.css" />
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
 <body>
   <main class="contenedor" style="max-width: 1000px; margin: 2rem auto;">
@@ -34,7 +36,7 @@
       <label for="ClienteId">Cliente:</label>
       <select name="ClienteId" id="ClienteId" required>
         <% (clientes || []).forEach(function(cliente){ %>
-          <option value="<%= cliente.Id %>" <%= (salida.ClienteId === cliente.Id) ? 'selected' : '' %>>
+          <option value="<%= cliente.Id %>" <%= (String(salida.ClienteId) === String(cliente.Id)) ? 'selected' : '' %>>
             <%= cliente.Nombre %>
           </option>
         <% }) %>
@@ -53,7 +55,6 @@
         name="Producto"
         id="Producto"
         required
-        data-original-producto="<%= salida.Producto || '' %>"
       >
         <option value="">-- Selecciona un producto --</option>
         <% (productos || []).forEach(function(producto){ %>
@@ -61,20 +62,19 @@
             value="<%= producto.Codigo %>"
             data-clave="<%= producto.Codigo %>"
             data-nombre="<%= producto.Nombre %>"
-            <%= (salida.Producto === producto.Codigo) ? 'selected' : '' %>
+            <%= (String(salida.Producto || '') === String(producto.Codigo)) ? 'selected' : '' %>
           >
             <%= producto.Nombre %> (<%= producto.Codigo %>)
           </option>
         <% }) %>
       </select>
 
-      <!-- Lote (se llena en el navegador a partir de window.LOTES) -->
+      <!-- Lote -->
       <label for="Lote">Lote:</label>
       <select
         name="Lote"
         id="Lote"
         required
-        data-current-lote="<%= salida.Lote || '' %>"
       >
         <option value="">-- Selecciona un lote --</option>
       </select>
@@ -131,6 +131,20 @@
     </form>
   </main>
 
+  <!-- Exponer datos al JS (sin lógica) -->
+  <script>
+    // Datos de la salida actual para que el JS calcule stock máximo cuando editas
+    window.SALIDA = {
+      Producto: "<%= salida.Producto || '' %>",
+      Lote: "<%= salida.Lote || '' %>",
+      CantidadOriginal: <%= Number(salida.Cantidad || 0) %>
+    };
+
+    // Lotes disponibles enviados por el servidor
+    // Formato esperado: [{ Producto, Lote, Caducidad, Stock }, ...]
+    window.LOTES = <%- JSON.stringify(lotes || []) %>;
+  </script>
+
   <!-- Ordenamiento dinámico de productos -->
   <script>
     document.addEventListener('DOMContentLoaded', function () {
@@ -140,13 +154,11 @@
 
       if (!selectProd || !btnClave || !btnNombre) return;
 
-      // Guardamos la lista original de options
       const opcionesOriginales = Array.from(selectProd.querySelectorAll('option'));
-      let ascClave = true; // alterna asc/desc
+      let ascClave = true;
 
-      // Ordenar por CLAVE (Codigo) ↑/↓
       btnClave.addEventListener('click', function () {
-        const opciones = opcionesOriginales.slice(1); // sin la opción vacía
+        const opciones = opcionesOriginales.slice(1);
         opciones.sort((a, b) => {
           const ca = (a.dataset.clave || '').toString();
           const cb = (b.dataset.clave || '').toString();
@@ -158,7 +170,6 @@
         actualizarSelect(opciones);
       });
 
-      // Ordenar por NOMBRE A–Z
       btnNombre.addEventListener('click', function () {
         const opciones = opcionesOriginales.slice(1);
         opciones.sort((a, b) =>
@@ -167,65 +178,99 @@
         actualizarSelect(opciones);
       });
 
-      // Reconstruye el select sin perder el producto seleccionado
       function actualizarSelect(listaOpciones) {
         const valorActual = selectProd.value;
         selectProd.innerHTML = '';
-        selectProd.appendChild(opcionesOriginales[0]); // "-- Selecciona un producto --"
+        selectProd.appendChild(opcionesOriginales[0]);
         listaOpciones.forEach(opt => selectProd.appendChild(opt));
         selectProd.value = valorActual;
+        // cuando cambie el orden, recargamos lotes para ese producto
+        rellenarLotes();
       }
     });
   </script>
 
-  <!-- Exponer datos al JS (sin lógica) -->
+  <!-- Llenado de LOTES y mensaje de stock (reemplaza a form_salida.js) -->
   <script>
-    // Datos de la salida actual para que el JS calcule max correctamente:
-    window.SALIDA = {
-      Producto: "<%= salida.Producto || '' %>",
-      Lote: "<%= salida.Lote || '' %>",
-      // CantidadOriginal es la cantidad ya descontada previamente (si es edición). En nueva = 0.
-      CantidadOriginal: <%= Number(salida.Cantidad || 0) %>
-    };
+    document.addEventListener('DOMContentLoaded', function () {
+      const selectProd = document.getElementById('Producto');
+      const selectLote = document.getElementById('Lote');
+      const ayuda      = document.getElementById('ayuda-stock');
 
-    // Lotes disponibles enviados por el servidor
-    window.LOTES = <%- JSON.stringify(lotes || []) %>;
-  </script>
+      const lotes   = Array.isArray(window.LOTES) ? window.LOTES : [];
+      const salida  = window.SALIDA || { Producto: '', Lote: '', CantidadOriginal: 0 };
 
-  <!-- JS externo servido por la app (usa window.SALIDA y window.LOTES) -->
-  <script src="/js/form_salida.js"></script>
+      function rellenarLotes() {
+        const codigo = selectProd.value;
+        selectLote.innerHTML = '<option value="">-- Selecciona un lote --</option>';
+        ayuda.textContent = '';
 
-  <!-- (Opcional) Pequeño helper para mostrar stock -->
-  <script>
-    // Si quieres mostrar el stock del lote elegido en el <small id="ayuda-stock">
-    document.addEventListener('DOMContentLoaded', function(){
-      var loteSel = document.getElementById('Lote');
-      var prodSel = document.getElementById('Producto');
-      var ayuda   = document.getElementById('ayuda-stock');
+        if (!codigo) return;
+
+        const lista = lotes.filter(l =>
+          String(l.Producto) === String(codigo)
+        );
+
+        lista.forEach(l => {
+          const opt = document.createElement('option');
+          opt.value = l.Lote;
+          const cad = l.Caducidad ? String(l.Caducidad).substring(0,10) : '';
+          opt.textContent = `${l.Lote} (Stock: ${l.Stock}, Cad: ${cad})`;
+
+          if (
+            salida.Lote &&
+            String(salida.Producto) === String(codigo) &&
+            String(salida.Lote) === String(l.Lote)
+          ) {
+            opt.selected = true;
+          }
+
+          selectLote.appendChild(opt);
+        });
+
+        mostrarStock();
+      }
 
       function mostrarStock() {
-        var codigo = prodSel.value;
-        var lote   = (loteSel.selectedOptions[0] || {}).value || '';
-        if (!codigo || !lote) { ayuda.textContent = ''; return; }
+        const codigo = selectProd.value;
+        const lote   = selectLote.value;
 
-        var item = (window.LOTES || []).find(function(l){
-          return String(l.Producto) === String(codigo) && String(l.Lote) === String(lote);
-        });
-        if (!item) { ayuda.textContent = ''; return; }
+        if (!codigo || !lote) {
+          ayuda.textContent = '';
+          return;
+        }
 
-        var base      = Number(item.Stock || 0);
-        var mismoProd = String(codigo) === String(window.SALIDA.Producto || '');
-        var mismoLote = String(lote)   === String(window.SALIDA.Lote || '');
-        var max       = (mismoProd && mismoLote)
-                        ? (base + Number(window.SALIDA.CantidadOriginal || 0))
-                        : base;
+        const item = lotes.find(l =>
+          String(l.Producto) === String(codigo) &&
+          String(l.Lote)     === String(lote)
+        );
+
+        if (!item) {
+          ayuda.textContent = '';
+          return;
+        }
+
+        const base      = Number(item.Stock || 0);
+        const mismoProd = String(codigo) === String(salida.Producto || '');
+        const mismoLote = String(lote)   === String(salida.Lote || '');
+        const max       = (mismoProd && mismoLote)
+                          ? base + Number(salida.CantidadOriginal || 0)
+                          : base;
 
         ayuda.textContent = 'Stock disponible para esta operación: ' + max + ' unidades';
       }
 
-      prodSel.addEventListener('change', mostrarStock);
-      loteSel.addEventListener('change', mostrarStock);
-      mostrarStock();
+      if (selectProd) {
+        selectProd.addEventListener('change', rellenarLotes);
+      }
+      if (selectLote) {
+        selectLote.addEventListener('change', mostrarStock);
+      }
+
+      // Inicializar al cargar la página
+      if (selectProd.value) {
+        rellenarLotes();
+      }
     });
   </script>
 </body>

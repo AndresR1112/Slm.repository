@@ -83,11 +83,44 @@ function requireRol(...roles) {
   };
 }
 
+// === Cliente 3PL: solo puede ver sus módulos ===
+function esCliente(req, res, next) {
+  if (!req.session?.usuario) {
+    return res.redirect('/acceso');
+  }
+
+  const tipo = getTipoUsuario(req);
+
+  if (tipo === 'cliente') {
+    const idCli = req.session.usuario.id_cliente;
+    if (!idCli) {
+      console.log('⚠ Cliente logueado sin id_cliente en sesión');
+    } else {
+      console.log('👤 Cliente 3PL, id_cliente =', idCli);
+      req.idCliente = idCli;
+    }
+    return next();
+  }
+
+  console.log('🚫 Acceso solo para clientes 3PL. Rol actual:', tipo);
+  return res.status(403).send('No tienes permisos para ver este módulo.');
+}
+
+// === Solo internos (admin, almacén, etc). Bloquea a cliente 3PL ===
+function soloInterno(req, res, next) {
+  const tipo = getTipoUsuario(req);
+  if (tipo === 'cliente') {
+    console.log('🚫 Usuario cliente intentó acceder a un módulo interno');
+    return res.status(403).send('No tienes permisos para ver este módulo.');
+  }
+  return next();
+}
+
 // Permisos por módulo (ajustables según tus reglas)
-const puedeEditarCatalogo     = requireRol('administrador', 'almacen');
-const puedeEditarEntradas     = requireRol('administrador', 'almacen');
-const puedeEditarSalidas      = requireRol('administrador', 'almacen');
-const puedeEditarClientes     = requireRol('administrador', 'facturacion');
+const puedeEditarCatalogo = requireRol('administrador', 'almacen');
+const puedeEditarEntradas = requireRol('administrador', 'almacen');
+const puedeEditarSalidas = requireRol('administrador', 'almacen');
+const puedeEditarClientes = requireRol('administrador', 'facturacion');
 const puedeEditarCotizaciones = requireRol('administrador', 'cotizacion');
 
 /* ======================================================
@@ -138,8 +171,7 @@ const upload = multer({ storage, fileFilter });
 /* ======================================================
    RUTAS GENERALES DE ARCHIVOS ADJUNTOS
    ====================================================== */
-
-// DESCARGAR ARCHIVO
+// DESCARGAR ARCHIVO (internos + clientes 3PL)
 app.get('/adjuntos/descargar/:id_archivo', estaLogueado, async (req, res) => {
   const idArchivo = parseInt(req.params.id_archivo, 10);
   if (isNaN(idArchivo)) {
@@ -158,14 +190,15 @@ app.get('/adjuntos/descargar/:id_archivo', estaLogueado, async (req, res) => {
 
     const archivo = rows[0];
 
-    // 🔒 Si es archivo de usuario, solo admin o RH pueden descargar
+    // 🔒 Si es archivo de USUARIO, solo Admin o RH pueden descargar
     if (archivo.modulo === 'usuario') {
-      const tipo = getTipoUsuario(req);
+      const tipo = getTipoUsuario(req);  // asumiendo que ya tienes esta función definida
       if (!(tipo === 'administrador' || tipo === 'recursos_humanos')) {
         return res.status(403).send('No tienes permisos para descargar archivos de usuarios.');
       }
     }
 
+    // Para el resto de módulos (entrada, salida, etc.) basta con estar logueado.
     const filePath = path.join(__dirname, archivo.ruta_archivo);
 
     res.download(filePath, archivo.nombre_original, (err) => {
@@ -182,7 +215,8 @@ app.get('/adjuntos/descargar/:id_archivo', estaLogueado, async (req, res) => {
   }
 });
 
-app.post('/adjuntos/eliminar/:id_archivo', estaLogueado, async (req, res) => {
+
+app.post('/adjuntos/eliminar/:id_archivo', estaLogueado, soloInterno, async (req, res) => {
   const idArchivo = parseInt(req.params.id_archivo, 10);
   if (isNaN(idArchivo)) {
     return res.status(400).send('ID de archivo inválido');
@@ -235,84 +269,90 @@ app.post('/adjuntos/eliminar/:id_archivo', estaLogueado, async (req, res) => {
   }
 });
 
-app.post('/adjuntos/subir/:modulo/:id', estaLogueado, upload.array('archivos', 10), async (req, res) => {
-  const moduloParam = req.params.modulo;  // entradas, salidas, cotizaciones, facturacion, usuarios
-  const idRegistro = parseInt(req.params.id, 10);
-  const usuario = req.session.usuario;
+app.post('/adjuntos/subir/:modulo/:id',
+  estaLogueado,
+  soloInterno,
+  upload.array('archivos', 10),
+  async (req, res) => {
+    const moduloParam = req.params.modulo;  // entradas, salidas, cotizaciones, facturacion, usuarios
+    const idRegistro = parseInt(req.params.id, 10);
+    const usuario = req.session.usuario;
 
-  if (isNaN(idRegistro)) {
-    console.error('ID de registro inválido en adjuntos:', req.params.id);
-    return res.status(400).send('ID de registro inválido');
-  }
-
-  let moduloDb;
-  switch (moduloParam) {
-    case 'entradas':     moduloDb = 'entrada'; break;
-    case 'salidas':      moduloDb = 'salida'; break;
-    case 'cotizaciones': moduloDb = 'cotizacion'; break;
-    case 'facturacion':  moduloDb = 'facturacion'; break;
-    case 'usuarios':     moduloDb = 'usuario'; break;
-    default:
-      console.error('Módulo no válido en adjuntos:', moduloParam);
-      return res.status(400).send('Módulo no válido');
-  }
-
-  // 🔒 Si es módulo usuarios, solo admin o RH pueden subir
-  if (moduloDb === 'usuario') {
-    const tipo = getTipoUsuario(req);
-    if (!(tipo === 'administrador' || tipo === 'recursos_humanos')) {
-      return res.status(403).send('No tienes permisos para subir archivos de usuarios.');
-    }
-  }
-
-  if (!req.files || req.files.length === 0) {
-    return res.status(400).send('No se recibieron archivos');
-  }
-
-  try {
-    for (const file of req.files) {
-      const rutaRelativa = path
-        .relative(__dirname, file.path)
-        .replace(/\\/g, '/');
-
-      await db.query(
-        `
-          INSERT INTO archivo_adjunto
-            (modulo, id_registro, nombre_original, nombre_sistema, mime_type, peso_bytes, ruta_archivo, usuario_fk)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-        [
-          moduloDb,
-          idRegistro,
-          file.originalname,
-          file.filename,
-          file.mimetype,
-          file.size,
-          rutaRelativa,
-          usuario ? usuario.id_usuario : null
-        ]
-      );
+    if (isNaN(idRegistro)) {
+      console.error('ID de registro inválido en adjuntos:', req.params.id);
+      return res.status(400).send('ID de registro inválido');
     }
 
-    const redirects = {
-      entradas: '/entradas',
-      salidas: '/salidas',
-      cotizaciones: '/cotizaciones',
-      facturacion: '/facturacion',
-      usuarios: '/usuarios'
-    };
+    let moduloDb;
+    switch (moduloParam) {
+      case 'entradas': moduloDb = 'entrada'; break;
+      case 'salidas': moduloDb = 'salida'; break;
+      case 'cotizaciones': moduloDb = 'cotizacion'; break;
+      case 'facturacion': moduloDb = 'facturacion'; break;
+      case 'usuarios': moduloDb = 'usuario'; break;
+      default:
+        console.error('Módulo no válido en adjuntos:', moduloParam);
+        return res.status(400).send('Módulo no válido');
+    }
 
-    res.redirect(redirects[moduloParam] || '/');
-  } catch (err) {
-    console.error('Error guardando archivos adjuntos:', err);
-    res.status(500).send('Error al guardar archivos adjuntos');
+    // 🔒 Si es módulo usuarios, solo admin o RH pueden subir
+    if (moduloDb === 'usuario') {
+      const tipo = getTipoUsuario(req);
+      if (!(tipo === 'administrador' || tipo === 'recursos_humanos')) {
+        return res.status(403).send('No tienes permisos para subir archivos de usuarios.');
+      }
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).send('No se recibieron archivos');
+    }
+
+    try {
+      for (const file of req.files) {
+        const rutaRelativa = path
+          .relative(__dirname, file.path)
+          .replace(/\\/g, '/');
+
+        await db.query(
+          `
+            INSERT INTO archivo_adjunto
+              (modulo, id_registro, nombre_original, nombre_sistema, mime_type, peso_bytes, ruta_archivo, usuario_fk)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            moduloDb,
+            idRegistro,
+            file.originalname,
+            file.filename,
+            file.mimetype,
+            file.size,
+            rutaRelativa,
+            usuario ? usuario.id_usuario : null
+          ]
+        );
+      }
+
+      const redirects = {
+        entradas: '/entradas',
+        salidas: '/salidas',
+        cotizaciones: '/cotizaciones',
+        facturacion: '/facturacion',
+        usuarios: '/usuarios'
+      };
+
+      res.redirect(redirects[moduloParam] || '/');
+    } catch (err) {
+      console.error('Error guardando archivos adjuntos:', err);
+      res.status(500).send('Error al guardar archivos adjuntos');
+    }
   }
-});
+);
 
 
 // SUBIR ARCHIVOS SOLO PARA ENTRADAS
 app.post('/adjuntos/entradas/:id_entrada',
   estaLogueado,
+  soloInterno,
   upload.array('archivos', 10),
   async (req, res) => {
     const idEntrada = parseInt(req.params.id_entrada, 10);
@@ -363,6 +403,7 @@ app.post('/adjuntos/entradas/:id_entrada',
 // SUBIR ARCHIVOS SOLO PARA SALIDAS
 app.post('/adjuntos/salidas/:id_salida',
   estaLogueado,
+  soloInterno,
   upload.array('archivos', 10),
   async (req, res) => {
     const idSalida = parseInt(req.params.id_salida, 10);
@@ -470,8 +511,17 @@ app.post('/login', async (req, res) => {
       .toLowerCase()
       .replace(/\s+/g, '_');
 
+    // Guardamos todo el usuario en sesión (incluye id_cliente si lo tiene)
     req.session.usuario = user;
-    res.redirect('/catalogo');
+
+    // 🔀 Redirección según tipo de usuario
+    if (user.tipo_usuario === 'cliente') {
+      // Cliente 3PL → solo panel 3PL
+      return res.redirect('/cliente');
+    } else {
+      // Usuarios internos → panel de Sologmedic
+      return res.redirect('/catalogo');
+    }
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).send('Error en el servidor');
@@ -482,13 +532,17 @@ app.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/acceso'));
 });
 
+/* ======================================================
 /* ===== Usuarios ===== */
-
-app.get('/usuarios', estaLogueado, esAdminORH, async (req, res) => {
+app.get('/usuarios', estaLogueado, esAdmin, async (req, res) => {
   try {
-    console.log('🧑‍💻 Entrando a /usuarios como:', req.session.usuario);
-    // Todos los usuarios
-    const [usuarios] = await db.query('SELECT * FROM usuario');
+    // Usuarios (con posible id_cliente)
+    const [usuarios] = await db.query(`
+      SELECT u.*, c.nombre_cliente
+      FROM usuario u
+      LEFT JOIN cliente c ON u.id_cliente = c.id_cliente
+      ORDER BY u.userName ASC
+    `);
 
     // Adjuntos del módulo "usuario"
     const [adjuntos] = await db.query(
@@ -514,34 +568,80 @@ app.get('/usuarios', estaLogueado, esAdminORH, async (req, res) => {
   }
 });
 
-app.get('/usuarios/nuevo', estaLogueado, esAdmin, (req, res) => {
-  res.render('editar_usuario', { usuarioData: {}, editar: false, usuario: req.session.usuario, error: null });
+/* ===== Nuevo Usuario ===== */
+app.get('/usuarios/nuevo', estaLogueado, esAdmin, async (req, res) => {
+  try {
+    const [clientes3pl] = await db.query(`
+      SELECT id_cliente, nombre_cliente
+      FROM cliente
+      WHERE es_3pl = 1
+      ORDER BY nombre_cliente ASC
+    `);
+
+    res.render('editar_usuario', {
+      usuarioData: {},
+      editar: false,
+      usuario: req.session.usuario,
+      error: null,
+      clientes3pl
+    });
+  } catch (err) {
+    console.error('Error cargando formulario de nuevo usuario:', err);
+    res.send('Error al cargar formulario de usuario');
+  }
 });
 
 app.post('/usuarios/nuevo', estaLogueado, esAdmin, async (req, res) => {
-  let { userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, contraseña_usuario } = req.body;
+  let {
+    userName,
+    nombreCompleto,
+    tipo_usuario,
+    telefono_usuario,
+    correo_usuario,
+    contraseña_usuario,
+    id_cliente
+  } = req.body;
 
-  // Normalizar antes de guardar
+  // Normalizar tipo de usuario
   tipo_usuario = tipo_usuario.trim().toLowerCase().replace(/\s+/g, '_');
 
+  // Si no es tipo "cliente", no asignamos id_cliente
+  if (tipo_usuario !== 'cliente') {
+    id_cliente = null;
+  }
+
   try {
-    const [existente] = await db.query('SELECT * FROM usuario WHERE BINARY TRIM(userName) = ?', [userName]);
+    const [existente] = await db.query(
+      'SELECT * FROM usuario WHERE BINARY TRIM(userName) = ?',
+      [userName]
+    );
     if (existente.length > 0) {
+      // Volvemos a cargar lista de clientes 3PL para el form
+      const [clientes3pl] = await db.query(`
+        SELECT id_cliente, nombre_cliente
+        FROM cliente
+        WHERE es_3pl = 1
+        ORDER BY nombre_cliente ASC
+      `);
+
       return res.render('editar_usuario', {
         usuarioData: req.body,
         editar: false,
         usuario: req.session.usuario,
-        error: 'El nombre de usuario ya existe'
+        error: 'El nombre de usuario ya existe',
+        clientes3pl
       });
     }
 
-    // Encriptar contraseña antes de guardar
     const hash = await bcrypt.hash(contraseña_usuario, 10);
 
     await db.query(
-      `INSERT INTO usuario (userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, \`contraseña_usuario\`, fechaRegistro_usuario)
-       VALUES (?, ?, ?, ?, ?, ?, CURDATE())`,
-      [userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, hash]
+      `INSERT INTO usuario
+        (userName, nombreCompleto, tipo_usuario,
+         telefono_usuario, correo_usuario, \`contraseña_usuario\`,
+         fechaRegistro_usuario, id_cliente)
+       VALUES (?, ?, ?, ?, ?, ?, CURDATE(), ?)`,
+      [userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, hash, id_cliente]
     );
 
     res.redirect('/usuarios');
@@ -551,16 +651,29 @@ app.post('/usuarios/nuevo', estaLogueado, esAdmin, async (req, res) => {
   }
 });
 
+/* ===== Editar Usuario ===== */
 app.get('/usuarios/editar/:id', estaLogueado, esAdmin, async (req, res) => {
+  const id = req.params.id;
+
   try {
-    const [results] = await db.query('SELECT * FROM usuario WHERE id_usuario = ?', [req.params.id]);
-    if (!results.length) return res.send('Usuario no encontrado');
+    const [results] = await db.query('SELECT * FROM usuario WHERE id_usuario = ?', [id]);
+    if (!results.length) {
+      return res.send('Usuario no encontrado');
+    }
+
+    const [clientes3pl] = await db.query(`
+      SELECT id_cliente, nombre_cliente
+      FROM cliente
+      WHERE es_3pl = 1
+      ORDER BY nombre_cliente ASC
+    `);
 
     res.render('editar_usuario', {
       usuarioData: results[0],
       editar: true,
       usuario: req.session.usuario,
-      error: null
+      error: null,
+      clientes3pl
     });
   } catch (err) {
     console.error(err);
@@ -569,12 +682,23 @@ app.get('/usuarios/editar/:id', estaLogueado, esAdmin, async (req, res) => {
 });
 
 app.post('/usuarios/editar/:id', estaLogueado, esAdmin, async (req, res) => {
-  let { userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, contraseña_usuario } = req.body;
+  const id = req.params.id;
 
-  // Normalizar el rol también al editar
+  let {
+    userName,
+    nombreCompleto,
+    tipo_usuario,
+    telefono_usuario,
+    correo_usuario,
+    contraseña_usuario,
+    id_cliente
+  } = req.body;
+
   tipo_usuario = tipo_usuario.trim().toLowerCase().replace(/\s+/g, '_');
 
-  const id = req.params.id;
+  if (tipo_usuario !== 'cliente') {
+    id_cliente = null;
+  }
 
   try {
     // Obtener contraseña actual
@@ -587,22 +711,25 @@ app.post('/usuarios/editar/:id', estaLogueado, esAdmin, async (req, res) => {
     }
 
     let passwordToSave;
-
     if (contraseña_usuario && contraseña_usuario.trim() !== '') {
-      // Si se escribió una nueva contraseña, la encriptamos
       passwordToSave = await bcrypt.hash(contraseña_usuario, 10);
     } else {
-      // Si el campo viene vacío, conservamos la anterior
       passwordToSave = actual['contraseña_usuario'];
     }
 
     await db.query(
       `UPDATE usuario
-         SET userName = ?, nombreCompleto = ?, tipo_usuario = ?, telefono_usuario = ?,
-             correo_usuario = ?, \`contraseña_usuario\` = ?
+         SET userName          = ?,
+             nombreCompleto    = ?,
+             tipo_usuario      = ?,
+             telefono_usuario  = ?,
+             correo_usuario    = ?,
+             \`contraseña_usuario\` = ?,
+             id_cliente        = ?
        WHERE id_usuario = ?`,
-      [userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, passwordToSave, id]
+      [userName, nombreCompleto, tipo_usuario, telefono_usuario, correo_usuario, passwordToSave, id_cliente, id]
     );
+
     res.redirect('/usuarios');
   } catch (err) {
     console.error(err);
@@ -610,6 +737,7 @@ app.post('/usuarios/editar/:id', estaLogueado, esAdmin, async (req, res) => {
   }
 });
 
+/* ===== Eliminar Usuario ===== */
 app.post('/usuarios/eliminar/:id', estaLogueado, esAdmin, async (req, res) => {
   try {
     await db.query('DELETE FROM usuario WHERE id_usuario = ?', [req.params.id]);
@@ -620,8 +748,974 @@ app.post('/usuarios/eliminar/:id', estaLogueado, esAdmin, async (req, res) => {
   }
 });
 
+/* ===== Rutas 3PL (cliente laboratorio) ===== */
+
+// DASHBOARD 3PL
+app.get('/cliente', estaLogueado, esCliente, async (req, res) => {
+  try {
+    const idCliente = req.idCliente; // id_cliente del laboratorio (ej. Synthon = 8)
+
+    const [[resumen]] = await db.query(
+      `
+      SELECT 
+        COUNT(*) AS total_registros,
+        COALESCE(SUM(stock_inventario), 0) AS total_piezas
+      FROM inventario
+      WHERE id_cliente_propietario = ?
+      `,
+      [idCliente]
+    );
+
+    res.render('dashboard3pl', {
+      usuario: req.session.usuario,
+      resumen
+    });
+  } catch (err) {
+    console.error('Error en /cliente:', err);
+    res.status(500).send('Error al cargar dashboard 3PL');
+  }
+});
+
+/* ======================================================
+   3PL – ENTRADAS, INVENTARIO Y SALIDAS PARA CLIENTES
+   ====================================================== */
+/* ===== Entradas 3PL (cliente) ===== */
+app.get('/cliente/entradas', estaLogueado, async (req, res) => {
+  try {
+    const usuario   = req.session.usuario;
+    const clienteId = usuario.id_cliente;
+
+    if (!clienteId) {
+      return res.status(403).send('Tu usuario no tiene un cliente asociado para 3PL.');
+    }
+
+    // Filtros desde querystring
+    const {
+      mes,        // número 1-12
+      anio,       // año 2024, etc.
+      producto,   // id_catalogo
+      lote,
+      cantidad,
+      q           // buscador general
+    } = req.query;
+
+    const where  = ['i.id_cliente_propietario = ?'];
+    const params = [clienteId];
+
+    if (mes) {
+      where.push('MONTH(e.fechaDeEntrada) = ?');
+      params.push(Number(mes));
+    }
+    if (anio) {
+      where.push('YEAR(e.fechaDeEntrada) = ?');
+      params.push(Number(anio));
+    }
+    if (producto) {
+      where.push('c.id_catalogo = ?');
+      params.push(Number(producto));
+    }
+    if (lote) {
+      where.push('e.lote = ?');
+      params.push(lote);
+    }
+    if (cantidad) {
+      where.push('e.cantidad = ?');
+      params.push(Number(cantidad));
+    }
+    if (q && q.trim() !== '') {
+      const like = `%${q.trim()}%`;
+      where.push(`
+        (
+          c.clave_catalogo       LIKE ?
+          OR c.nombreProdu_catalogo LIKE ?
+          OR e.lote              LIKE ?
+          OR CAST(e.cantidad AS CHAR) LIKE ?
+        )
+      `);
+      params.push(like, like, like, like);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const [entradas] = await db.query(
+      `
+      SELECT
+        e.id_entrada,
+        e.fechaDeEntrada,
+        e.lote,
+        e.caducidad,
+        e.cantidad,
+        e.costoTotal_entrada,
+        c.id_catalogo,
+        c.clave_catalogo,
+        c.nombreProdu_catalogo
+      FROM entrada e
+      JOIN inventario i
+        ON e.producto_FKdeInv = i.id_inventario
+      JOIN catalogo c
+        ON i.producto_FKinventario = c.id_catalogo
+      ${whereSql}
+      ORDER BY e.fechaDeEntrada DESC, c.clave_catalogo ASC
+      `,
+      params
+    );
+
+    // ===== Adjuntos por entrada (solo lectura en 3PL) =====
+    let adjuntosPorEntrada = {};
+    if (entradas.length > 0) {
+      const idsEntradas = entradas.map(e => e.id_entrada);
+
+      const [adjuntos] = await db.query(
+        `
+        SELECT *
+        FROM archivo_adjunto
+        WHERE modulo = 'entrada'
+          AND id_registro IN (?)
+        `,
+        [idsEntradas]
+      );
+
+      for (const a of adjuntos) {
+        if (!adjuntosPorEntrada[a.id_registro]) {
+          adjuntosPorEntrada[a.id_registro] = [];
+        }
+        adjuntosPorEntrada[a.id_registro].push(a);
+      }
+    }
+
+    // ==== Datos para combos de filtro (solo con base en lo que tiene este cliente) ====
+
+    // Meses/Años disponibles
+    const [filtrosFecha] = await db.query(
+      `
+      SELECT DISTINCT
+        YEAR(e.fechaDeEntrada)  AS anio,
+        MONTH(e.fechaDeEntrada) AS mes
+      FROM entrada e
+      JOIN inventario i ON e.producto_FKdeInv = i.id_inventario
+      WHERE i.id_cliente_propietario = ?
+      ORDER BY anio DESC, mes DESC
+      `,
+      [clienteId]
+    );
+
+    // Productos disponibles
+    const [filtrosProductos] = await db.query(
+      `
+      SELECT DISTINCT
+        c.id_catalogo,
+        c.clave_catalogo,
+        c.nombreProdu_catalogo
+      FROM entrada e
+      JOIN inventario i ON e.producto_FKdeInv = i.id_inventario
+      JOIN catalogo c   ON i.producto_FKinventario = c.id_catalogo
+      WHERE i.id_cliente_propietario = ?
+      ORDER BY c.nombreProdu_catalogo ASC
+      `,
+      [clienteId]
+    );
+
+    // Lotes (con info de producto)
+    const [filtrosLotes] = await db.query(
+      `
+      SELECT DISTINCT
+        i.lote_inventario AS lote,
+        i.producto_FKinventario AS id_catalogo
+      FROM inventario i
+      JOIN catalogo c
+        ON c.id_catalogo = i.producto_FKinventario
+      WHERE i.id_cliente_propietario = ?
+      ORDER BY i.lote_inventario ASC
+      `,
+      [clienteId]
+    );
+
+    // Cantidades distintas, ligadas a producto/lote
+    const [filtrosCantidades] = await db.query(
+      `
+      SELECT DISTINCT
+        e.cantidad,
+        c.id_catalogo,
+        e.lote
+      FROM entrada e
+      JOIN inventario i ON e.producto_FKdeInv = i.id_inventario
+      JOIN catalogo c   ON i.producto_FKinventario = c.id_catalogo
+      WHERE i.id_cliente_propietario = ?
+      ORDER BY e.cantidad ASC
+      `,
+      [clienteId]
+    );
+
+    // Querystring para export (si quieres respetar filtros en el Excel)
+    const qsParts = [];
+    if (mes)      qsParts.push('mes=' + encodeURIComponent(mes));
+    if (anio)     qsParts.push('anio=' + encodeURIComponent(anio));
+    if (producto) qsParts.push('producto=' + encodeURIComponent(producto));
+    if (lote)     qsParts.push('lote=' + encodeURIComponent(lote));
+    if (cantidad) qsParts.push('cantidad=' + encodeURIComponent(cantidad));
+    if (q && q.trim() !== '') qsParts.push('q=' + encodeURIComponent(q.trim()));
+    const qsExport = qsParts.length ? ('?' + qsParts.join('&')) : '';
+
+    res.render('3pl_entradas', {
+      entradas,
+      filtrosFecha,
+      filtrosProductos,
+      filtrosLotes,
+      filtrosCantidades,
+      filtrosSeleccionados: {
+        mes: mes || '',
+        anio: anio || '',
+        producto: producto || '',
+        lote: lote || '',
+        cantidad: cantidad || '',
+        q: q || ''
+      },
+      adjuntosPorEntrada,
+      qsExport,
+      q,
+      usuario
+    });
+  } catch (err) {
+    console.error('Error cargando entradas 3PL:', err);
+    res.send('Error cargando entradas 3PL');
+  }
+});
+
+
+/* ===== Inventario 3PL (cliente) ===== */
+app.get('/cliente/inventario', estaLogueado, async (req, res) => {
+  try {
+    const usuario = req.session.usuario;
+    const clienteId = usuario.id_cliente;
+
+    if (!clienteId) {
+      return res.status(403).send('Tu usuario no tiene un cliente asociado para 3PL.');
+    }
+
+    const {
+      producto,
+      lote,
+      stock,
+      estado,
+      q
+    } = req.query;
+
+    const where = ['i.id_cliente_propietario = ?'];
+    const params = [clienteId];
+
+    if (producto) {
+      where.push('c.id_catalogo = ?');
+      params.push(Number(producto));
+    }
+    if (lote) {
+      where.push('i.lote_inventario = ?');
+      params.push(lote);
+    }
+    if (stock) {
+      where.push('i.stock_inventario = ?');
+      params.push(Number(stock));
+    }
+    if (estado) {
+      where.push(`
+        CASE
+          WHEN i.caducidad_inventario IS NULL THEN 'Vigente'
+          WHEN i.caducidad_inventario < CURDATE() THEN 'Caducado'
+          WHEN DATEDIFF(i.caducidad_inventario, CURDATE()) <= 30 THEN 'Próximo a vencer'
+          ELSE 'Vigente'
+        END = ?
+      `);
+      params.push(estado);
+    }
+    if (q && q.trim() !== '') {
+      const like = `%${q.trim()}%`;
+      where.push(`
+        (
+          c.clave_catalogo LIKE ?
+          OR c.nombreProdu_catalogo LIKE ?
+          OR i.lote_inventario LIKE ?
+          OR CAST(i.stock_inventario AS CHAR) LIKE ?
+          OR
+            CASE
+              WHEN i.caducidad_inventario IS NULL THEN 'Vigente'
+              WHEN i.caducidad_inventario < CURDATE() THEN 'Caducado'
+              WHEN DATEDIFF(i.caducidad_inventario, CURDATE()) <= 30 THEN 'Próximo a vencer'
+              ELSE 'Vigente'
+            END LIKE ?
+        )
+      `);
+      params.push(like, like, like, like, like);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const [inventario] = await db.query(
+      `
+      SELECT
+        i.id_inventario,
+        i.producto_FKinventario,
+        i.lote_inventario,
+        i.stock_inventario,
+        i.caducidad_inventario,
+        DATEDIFF(i.caducidad_inventario, CURDATE()) AS diasRestantes_inventario,
+
+        c.id_catalogo,
+        c.clave_catalogo,
+        c.nombreProdu_catalogo,
+
+        CASE
+          WHEN i.caducidad_inventario IS NULL THEN 'Vigente'
+          WHEN i.caducidad_inventario < CURDATE() THEN 'Caducado'
+          WHEN DATEDIFF(i.caducidad_inventario, CURDATE()) <= 30 THEN 'Próximo a vencer'
+          ELSE 'Vigente'
+        END AS estadoDelProducto_inventario
+      FROM inventario i
+      JOIN catalogo c ON i.producto_FKinventario = c.id_catalogo
+      ${whereSql}
+      ORDER BY i.caducidad_inventario ASC, c.clave_catalogo ASC
+      `,
+      params
+    );
+
+    // Combos para filtros
+
+    const [filtrosProductos] = await db.query(
+      `
+      SELECT DISTINCT
+        c.id_catalogo,
+        c.clave_catalogo,
+        c.nombreProdu_catalogo
+      FROM inventario i
+      JOIN catalogo c ON i.producto_FKinventario = c.id_catalogo
+      WHERE i.id_cliente_propietario = ?
+      ORDER BY c.nombreProdu_catalogo ASC
+      `,
+      [clienteId]
+    );
+
+    const [filtrosLotes] = await db.query(
+      `
+      SELECT DISTINCT
+        i.lote_inventario       AS lote,
+        i.producto_FKinventario AS id_catalogo
+      FROM inventario i
+      JOIN catalogo c ON c.id_catalogo = i.producto_FKinventario
+      WHERE i.id_cliente_propietario = ?
+      ORDER BY i.lote_inventario ASC
+      `,
+      [clienteId]
+    );
+
+    const [filtrosStock] = await db.query(
+      `
+      SELECT DISTINCT i.stock_inventario AS stock
+      FROM inventario i
+      WHERE i.id_cliente_propietario = ?
+      ORDER BY i.stock_inventario ASC
+      `,
+      [clienteId]
+    );
+
+    const [filtrosEstados] = await db.query(
+      `
+      SELECT DISTINCT
+        CASE
+          WHEN i.caducidad_inventario IS NULL THEN 'Vigente'
+          WHEN i.caducidad_inventario < CURDATE() THEN 'Caducado'
+          WHEN DATEDIFF(i.caducidad_inventario, CURDATE()) <= 30 THEN 'Próximo a vencer'
+          ELSE 'Vigente'
+        END AS estado
+      FROM inventario i
+      WHERE i.id_cliente_propietario = ?
+      `,
+      [clienteId]
+    );
+
+    res.render('3pl_inventario', {
+      inventario,
+      filtrosProductos,
+      filtrosLotes,
+      filtrosStock,
+      filtrosEstados,
+      filtrosSeleccionados: {
+        producto: producto || '',
+        lote: lote || '',
+        stock: stock || '',
+        estado: estado || '',
+        q: q || ''
+      },
+      usuario
+    });
+  } catch (err) {
+    console.error('Error cargando inventario 3PL:', err);
+    res.send('Error cargando inventario 3PL');
+  }
+});
+
+/* ===== Salidas 3PL (cliente) ===== */
+app.get('/cliente/salidas', estaLogueado, async (req, res) => {
+  try {
+    const usuario   = req.session.usuario;
+    const clienteId = usuario.id_cliente;
+
+    if (!clienteId) {
+      return res.status(403).send('Tu usuario no tiene un cliente asociado para 3PL.');
+    }
+
+    const {
+      orden,
+      producto,
+      lote,
+      cantidad,
+      cliente_destino,
+      q
+    } = req.query;
+
+    const where  = ['i.id_cliente_propietario = ?'];
+    const params = [clienteId];
+
+    if (orden) {
+      where.push('s.ordenDeCompra_salida = ?');
+      params.push(orden);
+    }
+    if (producto) {
+      where.push('c.id_catalogo = ?');
+      params.push(Number(producto));
+    }
+    if (lote) {
+      where.push('s.lote = ?');
+      params.push(lote);
+    }
+    if (cantidad) {
+      where.push('s.cantidad = ?');
+      params.push(Number(cantidad));
+    }
+    if (cliente_destino) {
+      where.push('cliDestino.id_cliente = ?');
+      params.push(Number(cliente_destino));
+    }
+    if (q && q.trim() !== '') {
+      const like = `%${q.trim()}%`;
+      where.push(`
+        (
+          s.ordenDeCompra_salida   LIKE ?
+          OR c.clave_catalogo       LIKE ?
+          OR c.nombreProdu_catalogo LIKE ?
+          OR s.lote                 LIKE ?
+          OR CAST(s.cantidad AS CHAR) LIKE ?
+          OR cliDestino.nombre_cliente LIKE ?
+        )
+      `);
+      params.push(like, like, like, like, like, like);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const [salidas] = await db.query(
+      `
+      SELECT
+        s.id_salida,
+        s.ordenDeCompra_salida,
+        s.fecha_salida,
+        s.lote,
+        s.cantidad,
+        s.totalFacturado_salida,
+        s.folioDeFacturacion_salida,
+
+        c.id_catalogo,
+        c.clave_catalogo,
+        c.nombreProdu_catalogo,
+
+        cliDestino.id_cliente     AS id_cliente_destino,
+        cliDestino.nombre_cliente AS cliente_destino
+      FROM salida s
+      JOIN inventario i  ON s.id_inventario = i.id_inventario
+      JOIN catalogo  c   ON i.producto_FKinventario = c.id_catalogo
+      LEFT JOIN cliente cliDestino
+        ON s.id_cliente = cliDestino.id_cliente
+      ${whereSql}
+      ORDER BY s.fecha_salida DESC, c.clave_catalogo ASC
+      `,
+      params
+    );
+
+    // ===== Adjuntos por salida (solo lectura en 3PL) =====
+    let adjuntosPorSalida = {};
+    if (salidas.length > 0) {
+      const idsSalidas = salidas.map(s => s.id_salida);
+
+      const [adjuntos] = await db.query(
+        `
+        SELECT *
+        FROM archivo_adjunto
+        WHERE modulo = 'salida'
+          AND id_registro IN (?)
+        `,
+        [idsSalidas]
+      );
+
+      for (const a of adjuntos) {
+        if (!adjuntosPorSalida[a.id_registro]) {
+          adjuntosPorSalida[a.id_registro] = [];
+        }
+        adjuntosPorSalida[a.id_registro].push(a);
+      }
+    }
+
+    // Filtros para combos
+    const [filtrosOrdenes] = await db.query(
+      `
+      SELECT DISTINCT s.ordenDeCompra_salida AS orden
+      FROM salida s
+      JOIN inventario i ON s.id_inventario = i.id_inventario
+      WHERE i.id_cliente_propietario = ?
+      ORDER BY s.ordenDeCompra_salida ASC
+      `,
+      [clienteId]
+    );
+
+    const [filtrosProductos] = await db.query(
+      `
+      SELECT DISTINCT
+        c.id_catalogo,
+        c.clave_catalogo,
+        c.nombreProdu_catalogo
+      FROM salida s
+      JOIN inventario i ON s.id_inventario = i.id_inventario
+      JOIN catalogo  c  ON i.producto_FKinventario = c.id_catalogo
+      WHERE i.id_cliente_propietario = ?
+      ORDER BY c.nombreProdu_catalogo ASC
+      `,
+      [clienteId]
+    );
+
+    const [filtrosLotes] = await db.query(
+      `
+      SELECT DISTINCT
+        i.lote_inventario AS lote,
+        i.producto_FKinventario AS id_catalogo
+      FROM salida s
+      JOIN inventario i ON i.id_inventario = s.id_inventario
+      JOIN catalogo c   ON c.id_catalogo   = i.producto_FKinventario
+      WHERE i.id_cliente_propietario = ?
+      ORDER BY i.lote_inventario ASC
+      `,
+      [clienteId]
+    );
+
+    const [filtrosCantidades] = await db.query(
+      `
+      SELECT DISTINCT
+        s.cantidad,
+        c.id_catalogo,
+        i.lote_inventario AS lote
+      FROM salida s
+      JOIN inventario i ON s.id_inventario = i.id_inventario
+      JOIN catalogo  c  ON i.producto_FKinventario = c.id_catalogo
+      WHERE i.id_cliente_propietario = ?
+      ORDER BY s.cantidad ASC
+      `,
+      [clienteId]
+    );
+
+    const [filtrosClientesDestino] = await db.query(
+      `
+      SELECT DISTINCT
+        cliDestino.id_cliente,
+        cliDestino.nombre_cliente
+      FROM salida s
+      JOIN inventario i ON s.id_inventario = i.id_inventario
+      LEFT JOIN cliente cliDestino ON s.id_cliente = cliDestino.id_cliente
+      WHERE i.id_cliente_propietario = ?
+        AND cliDestino.id_cliente IS NOT NULL
+      ORDER BY cliDestino.nombre_cliente ASC
+      `,
+      [clienteId]
+    );
+
+    // Querystring para export
+    const qsParts = [];
+    if (orden)           qsParts.push('orden=' + encodeURIComponent(orden));
+    if (producto)        qsParts.push('producto=' + encodeURIComponent(producto));
+    if (lote)            qsParts.push('lote=' + encodeURIComponent(lote));
+    if (cantidad)        qsParts.push('cantidad=' + encodeURIComponent(cantidad));
+    if (cliente_destino) qsParts.push('cliente_destino=' + encodeURIComponent(cliente_destino));
+    if (q && q.trim() !== '') qsParts.push('q=' + encodeURIComponent(q.trim()));
+    const qsExport = qsParts.length ? ('?' + qsParts.join('&')) : '';
+
+    res.render('3pl_salidas', {
+      salidas,
+      filtrosOrdenes,
+      filtrosProductos,
+      filtrosLotes,
+      filtrosCantidades,
+      filtrosClientesDestino,
+      filtrosSeleccionados: {
+        orden: orden || '',
+        producto: producto || '',
+        lote: lote || '',
+        cantidad: cantidad || '',
+        cliente_destino: cliente_destino || '',
+        q: q || ''
+      },
+      adjuntosPorSalida,
+      qsExport,
+      q,
+      usuario
+    });
+  } catch (err) {
+    console.error('Error cargando salidas 3PL:', err);
+    res.send('Error cargando salidas 3PL');
+  }
+});
+
+
+/* ===== Exportar ENTRADAS 3PL a Excel ===== */
+app.get('/cliente/entradas/exportar', estaLogueado, async (req, res) => {
+  try {
+    const usuario   = req.session.usuario;
+    const clienteId = usuario.id_cliente;
+
+    if (!clienteId) {
+      return res.status(403).send('Tu usuario no tiene un cliente asociado para 3PL.');
+    }
+
+    const {
+      mes,
+      anio,
+      producto,
+      lote,
+      cantidad,
+      q
+    } = req.query;
+
+    const where  = ['i.id_cliente_propietario = ?'];
+    const params = [clienteId];
+
+    if (mes) {
+      where.push('MONTH(e.fechaDeEntrada) = ?');
+      params.push(Number(mes));
+    }
+    if (anio) {
+      where.push('YEAR(e.fechaDeEntrada) = ?');
+      params.push(Number(anio));
+    }
+    if (producto) {
+      where.push('c.id_catalogo = ?');
+      params.push(Number(producto));
+    }
+    if (lote) {
+      where.push('e.lote = ?');
+      params.push(lote);
+    }
+    if (cantidad) {
+      where.push('e.cantidad = ?');
+      params.push(Number(cantidad));
+    }
+    if (q && q.trim() !== '') {
+      const like = `%${q.trim()}%`;
+      where.push(`
+        (
+          c.clave_catalogo       LIKE ?
+          OR c.nombreProdu_catalogo LIKE ?
+          OR e.lote              LIKE ?
+          OR CAST(e.cantidad AS CHAR) LIKE ?
+        )
+      `);
+      params.push(like, like, like, like);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        e.fechaDeEntrada AS Fecha,
+        CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS Producto,
+        e.lote           AS Lote,
+        e.caducidad      AS Caducidad,
+        e.cantidad       AS Cantidad,
+        e.costoTotal_entrada AS Costo_Total
+      FROM entrada e
+      JOIN inventario i
+        ON e.producto_FKdeInv = i.id_inventario
+      JOIN catalogo c
+        ON i.producto_FKinventario = c.id_catalogo
+      ${whereSql}
+      ORDER BY e.fechaDeEntrada DESC, c.clave_catalogo ASC
+      `,
+      params
+    );
+
+    const workbook  = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Entradas');
+
+    worksheet.columns = [
+      { header: 'Fecha',       key: 'Fecha',       width: 12 },
+      { header: 'Producto',    key: 'Producto',    width: 45 },
+      { header: 'Lote',        key: 'Lote',        width: 15 },
+      { header: 'Caducidad',   key: 'Caducidad',   width: 12 },
+      { header: 'Cantidad',    key: 'Cantidad',    width: 12 },
+      { header: 'Costo Total', key: 'Costo_Total', width: 15 }
+    ];
+
+    rows.forEach(r => worksheet.addRow(r));
+    worksheet.getRow(1).font = { bold: true };
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=entradas.xlsx'
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('Error exportando entradas 3PL a Excel:', err);
+    res.status(500).send('Error exportando entradas 3PL a Excel');
+  }
+});
+
+/* ===== Exportar INVENTARIO 3PL a Excel ===== */
+app.get('/cliente/inventario/exportar', estaLogueado, async (req, res) => {
+  try {
+    const usuario   = req.session.usuario;
+    const clienteId = usuario.id_cliente;
+
+    if (!clienteId) {
+      return res.status(403).send('Tu usuario no tiene un cliente asociado para 3PL.');
+    }
+
+    const {
+      producto,
+      lote,
+      stock,
+      estado,
+      q
+    } = req.query;
+
+    const where  = ['i.id_cliente_propietario = ?'];
+    const params = [clienteId];
+
+    if (producto) {
+      where.push('c.id_catalogo = ?');
+      params.push(Number(producto));
+    }
+    if (lote) {
+      where.push('i.lote_inventario = ?');
+      params.push(lote);
+    }
+    if (stock) {
+      where.push('i.stock_inventario = ?');
+      params.push(Number(stock));
+    }
+    if (estado) {
+      where.push(`
+        CASE
+          WHEN i.caducidad_inventario IS NULL THEN 'Vigente'
+          WHEN i.caducidad_inventario < CURDATE() THEN 'Caducado'
+          WHEN DATEDIFF(i.caducidad_inventario, CURDATE()) <= 30 THEN 'Próximo a vencer'
+          ELSE 'Vigente'
+        END = ?
+      `);
+      params.push(estado);
+    }
+    if (q && q.trim() !== '') {
+      const like = `%${q.trim()}%`;
+      where.push(`
+        (
+          c.clave_catalogo LIKE ?
+          OR c.nombreProdu_catalogo LIKE ?
+          OR i.lote_inventario LIKE ?
+          OR CAST(i.stock_inventario AS CHAR) LIKE ?
+          OR
+            CASE
+              WHEN i.caducidad_inventario IS NULL THEN 'Vigente'
+              WHEN i.caducidad_inventario < CURDATE() THEN 'Caducado'
+              WHEN DATEDIFF(i.caducidad_inventario, CURDATE()) <= 30 THEN 'Próximo a vencer'
+              ELSE 'Vigente'
+            END LIKE ?
+        )
+      `);
+      params.push(like, like, like, like, like);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS Producto,
+        i.lote_inventario      AS Lote,
+        i.stock_inventario     AS Stock,
+        i.caducidad_inventario AS Caducidad,
+        DATEDIFF(i.caducidad_inventario, CURDATE()) AS Dias_restantes,
+        CASE
+          WHEN i.caducidad_inventario IS NULL THEN 'Vigente'
+          WHEN i.caducidad_inventario < CURDATE() THEN 'Caducado'
+          WHEN DATEDIFF(i.caducidad_inventario, CURDATE()) <= 30 THEN 'Próximo a vencer'
+          ELSE 'Vigente'
+        END AS Estado
+      FROM inventario i
+      JOIN catalogo c ON i.producto_FKinventario = c.id_catalogo
+      ${whereSql}
+      ORDER BY i.caducidad_inventario ASC, c.clave_catalogo ASC
+      `,
+      params
+    );
+
+    const workbook  = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Inventario');
+
+    worksheet.columns = [
+      { header: 'Producto',       key: 'Producto',       width: 45 },
+      { header: 'Lote',           key: 'Lote',           width: 15 },
+      { header: 'Stock',          key: 'Stock',          width: 12 },
+      { header: 'Caducidad',      key: 'Caducidad',      width: 12 },
+      { header: 'Días restantes', key: 'Dias_restantes', width: 16 },
+      { header: 'Estado',         key: 'Estado',         width: 18 }
+    ];
+
+    rows.forEach(r => worksheet.addRow(r));
+    worksheet.getRow(1).font = { bold: true };
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=inventario.xlsx'
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('Error exportando inventario 3PL a Excel:', err);
+    res.status(500).send('Error exportando inventario 3PL a Excel');
+  }
+});
+
+/* ===== Exportar SALIDAS 3PL a Excel ===== */
+app.get('/cliente/salidas/exportar', estaLogueado, async (req, res) => {
+  try {
+    const usuario   = req.session.usuario;
+    const clienteId = usuario.id_cliente;
+
+    if (!clienteId) {
+      return res.status(403).send('Tu usuario no tiene un cliente asociado para 3PL.');
+    }
+
+    const {
+      orden,
+      producto,
+      lote,
+      cantidad,
+      cliente_destino,
+      q
+    } = req.query;
+
+    const where  = ['i.id_cliente_propietario = ?'];
+    const params = [clienteId];
+
+    if (orden) {
+      where.push('s.ordenDeCompra_salida = ?');
+      params.push(orden);
+    }
+    if (producto) {
+      where.push('c.id_catalogo = ?');
+      params.push(Number(producto));
+    }
+    if (lote) {
+      where.push('s.lote = ?');
+      params.push(lote);
+    }
+    if (cantidad) {
+      where.push('s.cantidad = ?');
+      params.push(Number(cantidad));
+    }
+    if (cliente_destino) {
+      where.push('cliDestino.id_cliente = ?');
+      params.push(Number(cliente_destino));
+    }
+    if (q && q.trim() !== '') {
+      const like = `%${q.trim()}%`;
+      where.push(`
+        (
+          s.ordenDeCompra_salida LIKE ?
+          OR c.clave_catalogo    LIKE ?
+          OR c.nombreProdu_catalogo LIKE ?
+          OR s.lote              LIKE ?
+          OR CAST(s.cantidad AS CHAR) LIKE ?
+          OR cliDestino.nombre_cliente LIKE ?
+        )
+      `);
+      params.push(like, like, like, like, like, like);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        s.ordenDeCompra_salida                              AS Orden_de_compra,
+        s.fecha_salida                                      AS Fecha,
+        CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS Producto,
+        s.lote                                              AS Lote,
+        s.cantidad                                          AS Cantidad,
+        cliDestino.nombre_cliente                           AS Cliente_destino,
+        s.totalFacturado_salida                             AS Total_facturado,
+        s.folioDeFacturacion_salida                         AS Folio_factura
+      FROM salida s
+      JOIN inventario i  ON s.id_inventario = i.id_inventario
+      JOIN catalogo  c   ON i.producto_FKinventario = c.id_catalogo
+      LEFT JOIN cliente cliDestino
+        ON s.id_cliente = cliDestino.id_cliente
+      ${whereSql}
+      ORDER BY s.fecha_salida DESC, c.clave_catalogo ASC
+      `,
+      params
+    );
+
+    const workbook  = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Salidas');
+
+    worksheet.columns = [
+      { header: 'Orden de compra', key: 'Orden_de_compra',  width: 18 },
+      { header: 'Fecha',           key: 'Fecha',            width: 12 },
+      { header: 'Producto',        key: 'Producto',         width: 45 },
+      { header: 'Lote',            key: 'Lote',             width: 15 },
+      { header: 'Cantidad',        key: 'Cantidad',         width: 12 },
+      { header: 'Cliente destino', key: 'Cliente_destino',  width: 30 },
+      { header: 'Total facturado', key: 'Total_facturado',  width: 18 },
+      { header: 'Folio factura',   key: 'Folio_factura',    width: 20 }
+    ];
+
+    rows.forEach(r => worksheet.addRow(r));
+    worksheet.getRow(1).font = { bold: true };
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=salidas.xlsx'
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('Error exportando salidas 3PL a Excel:', err);
+    res.status(500).send('Error exportando salidas 3PL a Excel');
+  }
+});
+
+
 /* ===== Reporte PDF de inventario usando hoja base en TODAS las páginas ===== */
-app.get('/reporte', estaLogueado, async (req, res) => {
+app.get('/reporte', estaLogueado, soloInterno, async (req, res) => {
   try {
     // 1) Consulta con los nombres de la BD nueva
     const [rows] = await db.query(`
@@ -740,6 +1834,7 @@ app.get('/reporte', estaLogueado, async (req, res) => {
     res.status(500).send("Error al generar el reporte PDF");
   }
 });
+
 /* ===== Catálogo ===== */
 
 // LISTADO PRINCIPAL DE CATALOGO
@@ -758,8 +1853,8 @@ app.get('/catalogo', estaLogueado, async (req, res) => {
       ORDER BY clave_catalogo ASC
     `);
 
-    res.render('catalogo', { 
-      catalogo: results, 
+    res.render('catalogo', {
+      catalogo: results,
       usuario: req.session.usuario,
       q: ''  // para que el input de búsqueda no truene
     });
@@ -789,11 +1884,11 @@ app.get('/catalogo/exportar', estaLogueado, async (req, res) => {
     const worksheet = workbook.addWorksheet('Catálogo');
 
     worksheet.columns = [
-      { header: 'Clave',          key: 'Clave',          width: 18 },
-      { header: 'Nombre',         key: 'Nombre',         width: 50 },
-      { header: 'Presentación',   key: 'Presentacion',   width: 25 },
-      { header: 'Clave SSA',      key: 'Clave_SSA',      width: 18 },
-      { header: 'Precio Venta',   key: 'Precio_Venta',   width: 15 },
+      { header: 'Clave', key: 'Clave', width: 18 },
+      { header: 'Nombre', key: 'Nombre', width: 50 },
+      { header: 'Presentación', key: 'Presentacion', width: 25 },
+      { header: 'Clave SSA', key: 'Clave_SSA', width: 18 },
+      { header: 'Precio Venta', key: 'Precio_Venta', width: 15 },
       { header: 'Costo Unitario', key: 'Costo_Unitario', width: 15 }
     ];
 
@@ -838,10 +1933,10 @@ app.get('/catalogo/buscar', estaLogueado, async (req, res) => {
       [q, q, q]
     );
 
-    res.render('catalogo', { 
-      catalogo: results, 
-      usuario: req.session.usuario, 
-      q 
+    res.render('catalogo', {
+      catalogo: results,
+      usuario: req.session.usuario,
+      q
     });
   } catch (err) {
     console.error('Error buscando en catálogo:', err);
@@ -906,19 +2001,20 @@ app.post('/catalogo/eliminar/:id', estaLogueado, puedeEditarCatalogo, async (req
   }
 });
 
-
 /* ===== Entradas ===== */
-/* ===== Entradas ===== */
-app.get('/entradas', estaLogueado, async (req, res) => {
+app.get('/entradas', estaLogueado, soloInterno, async (req, res) => {
   try {
     const [entrada] = await db.query(`
-      SELECT e.*,
-             CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS ProductoNombre,
-             i.lote_inventario              AS LoteInventario,
-             i.estadoDelProducto_inventario AS EstadoInv
+      SELECT 
+        e.*,
+        CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS ProductoNombre,
+        i.lote_inventario              AS LoteInventario,
+        i.estadoDelProducto_inventario AS EstadoInv,
+        cli.nombre_cliente             AS PropietarioNombre
       FROM entrada e
       LEFT JOIN inventario i ON e.producto_FKdeInv = i.id_inventario
-      LEFT JOIN catalogo c   ON i.producto_FKinventario = c.id_catalogo
+      LEFT JOIN catalogo  c  ON i.producto_FKinventario = c.id_catalogo
+      LEFT JOIN cliente   cli ON e.id_cliente_propietario = cli.id_cliente
       ORDER BY e.fechaDeEntrada DESC, c.clave_catalogo ASC
     `);
 
@@ -956,7 +2052,7 @@ app.get('/entradas', estaLogueado, async (req, res) => {
 });
 
 /* 🔹 Exportar ENTRADAS a Excel */
-app.get('/entradas/exportar', estaLogueado, async (req, res) => {
+app.get('/entradas/exportar', estaLogueado, soloInterno, async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT 
@@ -970,7 +2066,7 @@ app.get('/entradas/exportar', estaLogueado, async (req, res) => {
         e.costoTotal_entrada       AS Costo_Total
       FROM entrada e
       LEFT JOIN inventario i ON e.producto_FKdeInv = i.id_inventario
-      LEFT JOIN catalogo c   ON i.producto_FKinventario = c.id_catalogo
+      LEFT JOIN catalogo  c  ON i.producto_FKinventario = c.id_catalogo
       ORDER BY e.fechaDeEntrada DESC, c.clave_catalogo ASC
     `);
 
@@ -978,13 +2074,13 @@ app.get('/entradas/exportar', estaLogueado, async (req, res) => {
     const worksheet = workbook.addWorksheet('Entradas');
 
     worksheet.columns = [
-      { header: 'Fecha',       key: 'Fecha',       width: 12 },
-      { header: 'Proveedor',   key: 'Proveedor',   width: 25 },
-      { header: 'Clave',       key: 'Clave',       width: 18 },
-      { header: 'Producto',    key: 'Producto',    width: 45 },
-      { header: 'Lote',        key: 'Lote',        width: 15 },
-      { header: 'Caducidad',   key: 'Caducidad',   width: 12 },
-      { header: 'Cantidad',    key: 'Cantidad',    width: 12 },
+      { header: 'Fecha', key: 'Fecha', width: 12 },
+      { header: 'Proveedor', key: 'Proveedor', width: 25 },
+      { header: 'Clave', key: 'Clave', width: 18 },
+      { header: 'Producto', key: 'Producto', width: 45 },
+      { header: 'Lote', key: 'Lote', width: 15 },
+      { header: 'Caducidad', key: 'Caducidad', width: 12 },
+      { header: 'Cantidad', key: 'Cantidad', width: 12 },
       { header: 'Costo Total', key: 'Costo_Total', width: 15 }
     ];
 
@@ -1009,7 +2105,7 @@ app.get('/entradas/exportar', estaLogueado, async (req, res) => {
 });
 
 /* ===== Buscador de entradas ===== */
-app.get('/entradas/buscar', estaLogueado, async (req, res) => {
+app.get('/entradas/buscar', estaLogueado, soloInterno, async (req, res) => {
   const q = (req.query.q || '').toString().trim();
   if (!q) return res.redirect('/entradas');
 
@@ -1019,11 +2115,13 @@ app.get('/entradas/buscar', estaLogueado, async (req, res) => {
       SELECT 
         e.*,
         CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS ProductoNombre,
-        i.lote_inventario      AS LoteInventario,
-        i.estadoDelProducto_inventario AS EstadoInv
+        i.lote_inventario              AS LoteInventario,
+        i.estadoDelProducto_inventario AS EstadoInv,
+        cli.nombre_cliente             AS PropietarioNombre
       FROM entrada e
       LEFT JOIN inventario i ON e.producto_FKdeInv = i.id_inventario
-      LEFT JOIN catalogo c   ON i.producto_FKinventario = c.id_catalogo
+      LEFT JOIN catalogo  c  ON i.producto_FKinventario = c.id_catalogo
+      LEFT JOIN cliente   cli ON e.id_cliente_propietario = cli.id_cliente
       WHERE 
         e.proveedor LIKE CONCAT('%', ?, '%')
         OR e.lote LIKE CONCAT('%', ?, '%')
@@ -1069,12 +2167,19 @@ app.get('/entradas/buscar', estaLogueado, async (req, res) => {
   }
 });
 
+/* ===== Nueva entrada (form) ===== */
 app.get('/entradas/nueva', estaLogueado, puedeEditarEntradas, async (req, res) => {
   try {
     const [productos] = await db.query(`
       SELECT id_catalogo, clave_catalogo, nombreProdu_catalogo
       FROM catalogo
       ORDER BY nombreProdu_catalogo ASC
+    `);
+
+    const [clientes] = await db.query(`
+      SELECT id_cliente, nombre_cliente
+      FROM cliente
+      ORDER BY nombre_cliente ASC
     `);
 
     const entrada = {
@@ -1085,23 +2190,38 @@ app.get('/entradas/nueva', estaLogueado, puedeEditarEntradas, async (req, res) =
       Caducidad: '',
       Cantidad: '',
       CostoTotal: '',
-      ProductoId: null
+      ProductoId: null,
+      id_cliente_propietario: null
     };
 
     res.render('editar_entrada', {
       editar: false,
       entrada,
       productos,
+      clientes,
       usuario: req.session.usuario
     });
   } catch (err) {
-    console.error('Error cargando productos:', err);
-    res.send('Error cargando productos');
+    console.error('Error cargando productos/clientes:', err);
+    res.send('Error cargando productos/clientes');
   }
 });
 
+/* ===== Nueva entrada (POST) ===== */
 app.post('/entradas/nueva', estaLogueado, puedeEditarEntradas, async (req, res) => {
-  const { Fecha_de_entrada, Proveedor, Producto, Lote, Caducidad, Cantidad, Costo_Total } = req.body;
+  const {
+    Fecha_de_entrada,
+    Proveedor,
+    Producto,
+    Lote,
+    Caducidad,
+    Cantidad,
+    Costo_Total,
+    id_cliente_propietario
+  } = req.body;
+
+  const idClienteProp = id_cliente_propietario || null;
+
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -1131,26 +2251,48 @@ app.post('/entradas/nueva', estaLogueado, puedeEditarEntradas, async (req, res) 
             SET stock_inventario = stock_inventario + ?,
                 caducidad_inventario = ?,
                 diasRestantes_inventario = DATEDIFF(?, CURDATE()),
-                estadoDelProducto_inventario = 'Disponible'
+                estadoDelProducto_inventario = 'Disponible',
+                id_cliente_propietario = ?
           WHERE id_inventario = ?`,
-        [Cantidad, Caducidad, Caducidad, inventarioId]
+        [Number(Cantidad), Caducidad, Caducidad, idClienteProp, inventarioId]
       );
     } else {
       const [nuevoInv] = await conn.query(
         `INSERT INTO inventario
-          (producto_FKinventario, lote_inventario, stock_inventario, caducidad_inventario, diasRestantes_inventario, estadoDelProducto_inventario)
-         VALUES (?, ?, ?, ?, DATEDIFF(?, CURDATE()), 'Disponible')`,
-
-        [Producto, Lote, Number(Cantidad), Caducidad, Caducidad]
+          (producto_FKinventario,
+           lote_inventario,
+           stock_inventario,
+           caducidad_inventario,
+           diasRestantes_inventario,
+           estadoDelProducto_inventario,
+           id_cliente_propietario)
+         VALUES (?, ?, ?, ?, DATEDIFF(?, CURDATE()), 'Disponible', ?)`,
+        [Producto, Lote, Number(Cantidad), Caducidad, Caducidad, idClienteProp]
       );
       inventarioId = nuevoInv.insertId;
     }
 
     await conn.query(
       `INSERT INTO entrada
-        (proveedor, fechaDeEntrada, lote, caducidad, cantidad, costoTotal_entrada, producto_FKdeInv)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [Proveedor, Fecha_de_entrada, Lote, Caducidad, Number(Cantidad), Costo_Total, inventarioId]
+        (proveedor,
+         fechaDeEntrada,
+         lote,
+         caducidad,
+         cantidad,
+         costoTotal_entrada,
+         producto_FKdeInv,
+         id_cliente_propietario)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        Proveedor,
+        Fecha_de_entrada,
+        Lote,
+        Caducidad,
+        Number(Cantidad),
+        Costo_Total,
+        inventarioId,
+        idClienteProp
+      ]
     );
 
     await conn.commit();
@@ -1164,19 +2306,21 @@ app.post('/entradas/nueva', estaLogueado, puedeEditarEntradas, async (req, res) 
   }
 });
 
+/* ===== Editar entrada (form) ===== */
 app.get('/entradas/editar/:id', estaLogueado, puedeEditarEntradas, async (req, res) => {
   const entradaId = req.params.id;
   try {
     const [[entrada]] = await db.query(`
       SELECT
-        e.id_entrada           AS Id,
-        e.proveedor            AS Proveedor,
-        e.fechaDeEntrada       AS Fecha,
-        e.lote                 AS Lote,
-        e.caducidad            AS Caducidad,
-        e.cantidad             AS Cantidad,
-        e.costoTotal_entrada   AS CostoTotal,
-        i.producto_FKinventario AS ProductoId
+        e.id_entrada             AS Id,
+        e.proveedor              AS Proveedor,
+        e.fechaDeEntrada         AS Fecha,
+        e.lote                   AS Lote,
+        e.caducidad              AS Caducidad,
+        e.cantidad               AS Cantidad,
+        e.costoTotal_entrada     AS CostoTotal,
+        i.producto_FKinventario  AS ProductoId,
+        e.id_cliente_propietario AS id_cliente_propietario
       FROM entrada e
       LEFT JOIN inventario i ON i.id_inventario = e.producto_FKdeInv
       WHERE e.id_entrada = ?
@@ -1190,10 +2334,17 @@ app.get('/entradas/editar/:id', estaLogueado, puedeEditarEntradas, async (req, r
       ORDER BY nombreProdu_catalogo ASC
     `);
 
+    const [clientes] = await db.query(`
+      SELECT id_cliente, nombre_cliente
+      FROM cliente
+      ORDER BY nombre_cliente ASC
+    `);
+
     res.render('editar_entrada', {
       editar: true,
       entrada,
       productos,
+      clientes,
       usuario: req.session.usuario
     });
   } catch (err) {
@@ -1202,9 +2353,22 @@ app.get('/entradas/editar/:id', estaLogueado, puedeEditarEntradas, async (req, r
   }
 });
 
+/* ===== Editar entrada (POST) ===== */
 app.post('/entradas/editar/:id', estaLogueado, puedeEditarEntradas, async (req, res) => {
   const entradaId = req.params.id;
-  const { Fecha_de_entrada, Proveedor, Producto, Lote, Caducidad, Cantidad, Costo_Total } = req.body;
+  const {
+    Fecha_de_entrada,
+    Proveedor,
+    Producto,
+    Lote,
+    Caducidad,
+    Cantidad,
+    Costo_Total,
+    id_cliente_propietario
+  } = req.body;
+
+  const idClienteProp = id_cliente_propietario || null;
+
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -1231,17 +2395,20 @@ app.post('/entradas/editar/:id', estaLogueado, puedeEditarEntradas, async (req, 
     const mismoLote = (invViejo.lote_inventario === Lote);
 
     if (mismoProducto && mismoLote) {
+      // ✅ Siempre actualizamos inventario aunque delta sea 0,
+      // para sincronizar id_cliente_propietario, caducidad, etc.
       const delta = Number(Cantidad) - Number(entradaAnterior.cantidad);
-      if (delta !== 0) {
-        await conn.query(
-          `UPDATE inventario
-              SET stock_inventario = stock_inventario + ?,
-                  caducidad_inventario = ?,
-                  diasRestantes_inventario = DATEDIFF(?, CURDATE())
-            WHERE id_inventario = ?`,
-          [delta, Caducidad, Caducidad, invViejo.id_inventario]
-        );
-      }
+
+      await conn.query(
+        `UPDATE inventario
+            SET stock_inventario = stock_inventario + ?,
+                caducidad_inventario = ?,
+                diasRestantes_inventario = DATEDIFF(?, CURDATE()),
+                id_cliente_propietario = ?,
+                estadoDelProducto_inventario = 'Disponible'
+          WHERE id_inventario = ?`,
+        [delta, Caducidad, Caducidad, idClienteProp, invViejo.id_inventario]
+      );
 
       await conn.query(
         `UPDATE entrada
@@ -1250,11 +2417,22 @@ app.post('/entradas/editar/:id', estaLogueado, puedeEditarEntradas, async (req, 
                 lote = ?,
                 caducidad = ?,
                 cantidad = ?,
-                costoTotal_entrada = ?
+                costoTotal_entrada = ?,
+                id_cliente_propietario = ?
           WHERE id_entrada = ?`,
-        [Proveedor, Fecha_de_entrada, Lote, Caducidad, Number(Cantidad), Costo_Total, entradaId]
+        [
+          Proveedor,
+          Fecha_de_entrada,
+          Lote,
+          Caducidad,
+          Number(Cantidad),
+          Costo_Total,
+          idClienteProp,
+          entradaId
+        ]
       );
     } else {
+      // Cambió producto y/o lote → mover stock a otro inventario
       const [[invDestinoExistente]] = await conn.query(
         `SELECT id_inventario
            FROM inventario
@@ -1271,16 +2449,23 @@ app.post('/entradas/editar/:id', estaLogueado, puedeEditarEntradas, async (req, 
               SET stock_inventario = stock_inventario + ?,
                   caducidad_inventario = ?,
                   diasRestantes_inventario = DATEDIFF(?, CURDATE()),
-                  estadoDelProducto_inventario = 'Disponible'
+                  estadoDelProducto_inventario = 'Disponible',
+                  id_cliente_propietario = ?
             WHERE id_inventario = ?`,
-          [Number(Cantidad), Caducidad, Caducidad, inventarioDestinoId]
+          [Number(Cantidad), Caducidad, Caducidad, idClienteProp, inventarioDestinoId]
         );
       } else {
         const [nuevoInv] = await conn.query(
           `INSERT INTO inventario
-            (producto_FKinventario, lote_inventario, stock_inventario, caducidad_inventario, diasRestantes_inventario, estadoDelProducto_inventario)
-           VALUES (?, ?, ?, ?, DATEDIFF(?, CURDATE()), 'Disponible')`,
-          [Producto, Lote, Number(Cantidad), Caducidad, Caducidad]
+            (producto_FKinventario,
+             lote_inventario,
+             stock_inventario,
+             caducidad_inventario,
+             diasRestantes_inventario,
+             estadoDelProducto_inventario,
+             id_cliente_propietario)
+           VALUES (?, ?, ?, ?, DATEDIFF(?, CURDATE()), 'Disponible', ?)`,
+          [Producto, Lote, Number(Cantidad), Caducidad, Caducidad, idClienteProp]
         );
         inventarioDestinoId = nuevoInv.insertId;
       }
@@ -1293,11 +2478,23 @@ app.post('/entradas/editar/:id', estaLogueado, puedeEditarEntradas, async (req, 
                 caducidad = ?,
                 cantidad = ?,
                 costoTotal_entrada = ?,
-                producto_FKdeInv = ?
+                producto_FKdeInv = ?,
+                id_cliente_propietario = ?
           WHERE id_entrada = ?`,
-        [Proveedor, Fecha_de_entrada, Lote, Caducidad, Number(Cantidad), Costo_Total, inventarioDestinoId, entradaId]
+        [
+          Proveedor,
+          Fecha_de_entrada,
+          Lote,
+          Caducidad,
+          Number(Cantidad),
+          Costo_Total,
+          inventarioDestinoId,
+          idClienteProp,
+          entradaId
+        ]
       );
 
+      // Restar del inventario viejo
       await conn.query(
         `UPDATE inventario
             SET stock_inventario = stock_inventario - ?
@@ -1338,9 +2535,12 @@ app.post('/entradas/editar/:id', estaLogueado, puedeEditarEntradas, async (req, 
     conn.release();
   }
 });
+/* ======================================================
+   SALIDAS (MÓDULO INTERNO Sologmedic)
+   ====================================================== */
 
-/* ===== Salidas ===== */
-app.get('/salidas', estaLogueado, async (req, res) => {
+/* ===== Listado de salidas ===== */
+app.get('/salidas', estaLogueado, soloInterno, async (req, res) => {
   try {
     const [salidas] = await db.query(`
       SELECT
@@ -1349,7 +2549,7 @@ app.get('/salidas', estaLogueado, async (req, res) => {
         s.fecha_salida              AS Fecha,
         cl.nombre_cliente           AS ClienteNombre,
 
-        CONCAT('(', ca.clave_catalogo, ') ', 
+        CONCAT('(', ca.clave_catalogo, ') ',
                TRIM(REPLACE(ca.nombreProdu_catalogo, CONCAT('(', ca.clave_catalogo, ')'), '')))
           AS ProductoNombre,
 
@@ -1358,7 +2558,8 @@ app.get('/salidas', estaLogueado, async (req, res) => {
         s.cantidad                  AS Cantidad,
         s.precioDeVenta_salida      AS Precio_Venta,
         s.totalFacturado_salida     AS Total_Facturado,
-        s.folioDeFacturacion_salida AS Folio_de_Facturacion
+        s.folioDeFacturacion_salida AS Folio_de_Facturacion,
+        s.id_cliente_propietario    AS id_cliente_propietario
       FROM salida s
       LEFT JOIN cliente    cl ON cl.id_cliente   = s.id_cliente
       LEFT JOIN inventario i  ON i.id_inventario = s.id_inventario
@@ -1390,14 +2591,14 @@ app.get('/salidas', estaLogueado, async (req, res) => {
 });
 
 /* 🔹 Exportar SALIDAS a Excel */
-app.get('/salidas/exportar', estaLogueado, async (req, res) => {
+app.get('/salidas/exportar', estaLogueado, soloInterno, async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT
         s.fecha_salida              AS Fecha,
         s.ordenDeCompra_salida      AS Orden_de_compra,
         cl.nombre_cliente           AS Cliente,
-        CONCAT('(', ca.clave_catalogo, ') ', 
+        CONCAT('(', ca.clave_catalogo, ') ',
                TRIM(REPLACE(ca.nombreProdu_catalogo, CONCAT('(', ca.clave_catalogo, ')'), '')))
           AS Producto,
         ca.clave_catalogo           AS Codigo,
@@ -1417,22 +2618,19 @@ app.get('/salidas/exportar', estaLogueado, async (req, res) => {
     const worksheet = workbook.addWorksheet('Salidas');
 
     worksheet.columns = [
-      { header: 'Fecha',               key: 'Fecha',               width: 12 },
-      { header: 'Orden de compra',     key: 'Orden_de_compra',     width: 18 },
-      { header: 'Cliente',             key: 'Cliente',             width: 30 },
-      { header: 'Producto',            key: 'Producto',            width: 45 },
-      { header: 'Clave',               key: 'Codigo',              width: 16 },
-      { header: 'Lote',                key: 'Lote',                width: 15 },
-      { header: 'Cantidad',            key: 'Cantidad',            width: 12 },
-      { header: 'Precio Venta',        key: 'Precio_Venta',        width: 15 },
-      { header: 'Total Facturado',     key: 'Total_Facturado',     width: 18 },
-      { header: 'Folio de facturación',key: 'Folio_de_Facturacion',width: 22 }
+      { header: 'Fecha', key: 'Fecha', width: 12 },
+      { header: 'Orden de compra', key: 'Orden_de_compra', width: 18 },
+      { header: 'Cliente', key: 'Cliente', width: 30 },
+      { header: 'Producto', key: 'Producto', width: 45 },
+      { header: 'Clave', key: 'Codigo', width: 16 },
+      { header: 'Lote', key: 'Lote', width: 15 },
+      { header: 'Cantidad', key: 'Cantidad', width: 12 },
+      { header: 'Precio Venta', key: 'Precio_Venta', width: 15 },
+      { header: 'Total Facturado', key: 'Total_Facturado', width: 18 },
+      { header: 'Folio de facturación', key: 'Folio_de_Facturacion', width: 22 }
     ];
 
-    rows.forEach(row => {
-      worksheet.addRow(row);
-    });
-
+    rows.forEach(row => worksheet.addRow(row));
     worksheet.getRow(1).font = { bold: true };
 
     res.setHeader(
@@ -1452,7 +2650,8 @@ app.get('/salidas/exportar', estaLogueado, async (req, res) => {
   }
 });
 
-app.get('/salidas/buscar', estaLogueado, async (req, res) => {
+/* 🔎 Buscar salida por OC (solo interno) */
+app.get('/salidas/buscar', estaLogueado, soloInterno, async (req, res) => {
   const orden = req.query.orden_buscar?.toString().trim();
   if (!orden) return res.redirect('/salidas');
 
@@ -1469,7 +2668,8 @@ app.get('/salidas/buscar', estaLogueado, async (req, res) => {
         s.cantidad                  AS Cantidad,
         s.precioDeVenta_salida      AS Precio_Venta,
         s.totalFacturado_salida     AS Total_Facturado,
-        s.folioDeFacturacion_salida AS Folio_de_Facturacion
+        s.folioDeFacturacion_salida AS Folio_de_Facturacion,
+        s.id_cliente_propietario    AS id_cliente_propietario
       FROM salida s
       LEFT JOIN cliente    cl ON cl.id_cliente   = s.id_cliente
       LEFT JOIN inventario i  ON i.id_inventario = s.id_inventario
@@ -1478,15 +2678,17 @@ app.get('/salidas/buscar', estaLogueado, async (req, res) => {
       ORDER BY s.fecha_salida DESC
     `, [orden]);
 
-    res.render('salidas', { salidas, usuario: req.session.usuario });
+    res.render('salidas', {
+      salidas,
+      usuario: req.session.usuario
+    });
   } catch (err) {
     console.error('Error buscando orden de compra:', err);
     res.send('Error buscando orden de compra');
   }
 });
 
-// (el resto de tus rutas de nueva / editar se queda igual)
-
+/* ===== Nueva salida (FORM) ===== */
 app.get('/salidas/nueva', estaLogueado, puedeEditarSalidas, async (req, res) => {
   try {
     const [clientes] = await db.query(`
@@ -1531,32 +2733,59 @@ app.get('/salidas/nueva', estaLogueado, puedeEditarSalidas, async (req, res) => 
       Folio_de_Facturacion: ''
     };
 
-    res.render('editar_salida', { salida, clientes, productos, lotes, usuario: req.session.usuario });
+    res.render('editar_salida', {
+      salida,
+      clientes,
+      productos,
+      lotes,
+      usuario: req.session.usuario
+    });
   } catch (err) {
     console.error('Error cargando formulario de nueva salida:', err);
     res.send('Error cargando formulario de nueva salida');
   }
 });
 
+/* ===== Nueva salida (POST) ===== */
 app.post('/salidas/nueva', estaLogueado, puedeEditarSalidas, async (req, res) => {
   const conn = await db.getConnection();
   try {
-    let { Fecha, ClienteId, Producto, Lote, Cantidad, Precio_Venta, Total_Facturado, orden_de_compra, Folio_de_Facturacion } = req.body;
+    let {
+      Fecha,
+      ClienteId,
+      Producto,
+      Lote,
+      Cantidad,
+      Precio_Venta,
+      Total_Facturado,
+      orden_de_compra,
+      Folio_de_Facturacion
+    } = req.body;
+
     const cantidadNum = parseInt(Cantidad, 10);
 
     await conn.beginTransaction();
 
+    // 1) Producto por clave_catalogo
     const [[cat]] = await conn.query(
       `SELECT id_catalogo FROM catalogo WHERE clave_catalogo = ?`,
       [Producto]
     );
     if (!cat) {
       await conn.rollback();
-      return res.send(`<h2 style="color:red;">Error: Código de producto inválido</h2><a href="/salidas/nueva"><button>Volver</button></a>`);
+      return res.send(`
+        <h2 style="color:red;">Error: Código de producto inválido</h2>
+        <a href="/salidas/nueva"><button>Volver</button></a>
+      `);
     }
 
+    // 2) Inventario (incluyendo id_cliente_propietario)
     const [[inv]] = await conn.query(`
-      SELECT id_inventario, stock_inventario, caducidad_inventario
+      SELECT
+        id_inventario,
+        stock_inventario,
+        caducidad_inventario,
+        id_cliente_propietario
       FROM inventario
       WHERE producto_FKinventario = ? AND lote_inventario = ?
       FOR UPDATE
@@ -1564,26 +2793,66 @@ app.post('/salidas/nueva', estaLogueado, puedeEditarSalidas, async (req, res) =>
 
     if (!inv || inv.stock_inventario < cantidadNum) {
       await conn.rollback();
-      return res.send(`<h2 style="color:red;">Error: Stock insuficiente o lote inexistente</h2><a href="/salidas/nueva"><button>Volver</button></a>`);
+      return res.send(`
+        <h2 style="color:red;">Error: Stock insuficiente o lote inexistente</h2>
+        <a href="/salidas/nueva"><button>Volver</button></a>
+      `);
     }
 
-    let ordenOC = (orden_de_compra && `${orden_de_compra}`.trim() !== '') ? `${orden_de_compra}`.trim() : null;
+    // 3) Consecutivo de orden de compra
+    let ordenOC = (orden_de_compra && `${orden_de_compra}`.trim() !== '')
+      ? `${orden_de_compra}`.trim()
+      : null;
+
     if (!ordenOC) {
-      const [[row]] = await conn.query(`SELECT * FROM consecutivo WHERE nombre = 'orden_de_compra' FOR UPDATE`);
-      if (!row) await conn.query(`INSERT INTO consecutivo (nombre, ultimoValor) VALUES ('orden_de_compra', 0)`);
-      const [[row2]] = await conn.query(`SELECT * FROM consecutivo WHERE nombre = 'orden_de_compra' FOR UPDATE`);
+      const [[row]] = await conn.query(
+        `SELECT * FROM consecutivo WHERE nombre = 'orden_de_compra' FOR UPDATE`
+      );
+      if (!row) {
+        await conn.query(`
+          INSERT INTO consecutivo (nombre, ultimoValor)
+          VALUES ('orden_de_compra', 0)
+        `);
+      }
+      const [[row2]] = await conn.query(
+        `SELECT * FROM consecutivo WHERE nombre = 'orden_de_compra' FOR UPDATE`
+      );
       const siguiente = Number(row2.ultimoValor) + 1;
-      await conn.query(`UPDATE consecutivo SET ultimoValor = ? WHERE id_consecutivo = ?`, [siguiente, row2.id_consecutivo]);
+      await conn.query(
+        `UPDATE consecutivo SET ultimoValor = ? WHERE id_consecutivo = ?`,
+        [siguiente, row2.id_consecutivo]
+      );
       ordenOC = String(siguiente);
     }
 
+    // 4) Insertar SALIDA con id_cliente_propietario tomado del inventario
     await conn.query(`
       INSERT INTO salida
-        (ordenDeCompra_salida, fecha_salida, id_cliente, id_inventario, lote, cantidad,
-         precioDeVenta_salida, totalFacturado_salida, folioDeFacturacion_salida)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [ordenOC, Fecha, ClienteId, inv.id_inventario, Lote, cantidadNum, Precio_Venta, Total_Facturado, Folio_de_Facturacion || null]);
+        (ordenDeCompra_salida,
+         fecha_salida,
+         id_cliente,
+         id_inventario,
+         id_cliente_propietario,
+         lote,
+         cantidad,
+         precioDeVenta_salida,
+         totalFacturado_salida,
+         folioDeFacturacion_salida)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      ordenOC,
+      Fecha,
+      ClienteId,
+      inv.id_inventario,
+      inv.id_cliente_propietario || null,
+      Lote,
+      cantidadNum,
+      Precio_Venta,
+      Total_Facturado,
+      Folio_de_Facturacion || null
+    ]);
 
+    // 5) Actualizar inventario
     await conn.query(`
       UPDATE inventario
          SET stock_inventario = stock_inventario - ?,
@@ -1591,9 +2860,17 @@ app.post('/salidas/nueva', estaLogueado, puedeEditarSalidas, async (req, res) =>
        WHERE id_inventario = ?
     `, [cantidadNum, inv.id_inventario]);
 
-    const [[rev]] = await conn.query(`SELECT stock_inventario FROM inventario WHERE id_inventario = ?`, [inv.id_inventario]);
+    const [[rev]] = await conn.query(
+      `SELECT stock_inventario FROM inventario WHERE id_inventario = ?`,
+      [inv.id_inventario]
+    );
     if (rev && Number(rev.stock_inventario) === 0) {
-      await conn.query(`UPDATE inventario SET estadoDelProducto_inventario = 'Agotado' WHERE id_inventario = ?`, [inv.id_inventario]);
+      await conn.query(
+        `UPDATE inventario
+            SET estadoDelProducto_inventario = 'Agotado'
+          WHERE id_inventario = ?`,
+        [inv.id_inventario]
+      );
     }
 
     await conn.commit();
@@ -1607,6 +2884,7 @@ app.post('/salidas/nueva', estaLogueado, puedeEditarSalidas, async (req, res) =>
   }
 });
 
+/* ===== Editar salida (FORM) ===== */
 app.get('/salidas/editar/:id', estaLogueado, puedeEditarSalidas, async (req, res) => {
   const salidaId = req.params.id;
   try {
@@ -1659,24 +2937,47 @@ app.get('/salidas/editar/:id', estaLogueado, puedeEditarSalidas, async (req, res
       ORDER BY c.nombreProdu_catalogo ASC, i.lote_inventario ASC
     `, [salida.id_inventario]);
 
-    res.render('editar_salida', { salida, clientes, productos, lotes, usuario: req.session.usuario });
+    res.render('editar_salida', {
+      salida,
+      clientes,
+      productos,
+      lotes,
+      usuario: req.session.usuario
+    });
   } catch (err) {
     console.error('Error cargando salida para editar:', err);
     res.send('Error cargando salida para editar');
   }
 });
 
+/* ===== Editar salida (POST) ===== */
 app.post('/salidas/editar/:id', estaLogueado, puedeEditarSalidas, async (req, res) => {
   const salidaId = req.params.id;
   const conn = await db.getConnection();
   try {
-    const { Fecha, ClienteId, Producto, Lote, Cantidad, Precio_Venta, Total_Facturado, orden_de_compra, Folio_de_Facturacion } = req.body;
+    const {
+      Fecha,
+      ClienteId,
+      Producto,
+      Lote,
+      Cantidad,
+      Precio_Venta,
+      Total_Facturado,
+      orden_de_compra,
+      Folio_de_Facturacion
+    } = req.body;
+
     const nuevaCant = parseInt(Cantidad, 10);
 
     await conn.beginTransaction();
 
+    // 1) Datos originales de la salida
     const [[original]] = await conn.query(`
-      SELECT s.id_salida, s.cantidad AS cant_original, s.id_inventario AS inv_original, s.ordenDeCompra_salida
+      SELECT
+        s.id_salida,
+        s.cantidad              AS cant_original,
+        s.id_inventario         AS inv_original,
+        s.ordenDeCompra_salida  AS orden_original
       FROM salida s
       WHERE s.id_salida = ?
       FOR UPDATE
@@ -1689,14 +2990,26 @@ app.post('/salidas/editar/:id', estaLogueado, puedeEditarSalidas, async (req, re
 
     const cantOriginal = Number(original.cant_original || 0);
 
-    const [[cat]] = await conn.query(`SELECT id_catalogo FROM catalogo WHERE clave_catalogo = ?`, [Producto]);
+    // 2) Producto (id_catalogo)
+    const [[cat]] = await conn.query(
+      `SELECT id_catalogo FROM catalogo WHERE clave_catalogo = ?`,
+      [Producto]
+    );
     if (!cat) {
       await conn.rollback();
-      return res.send(`<h2 style="color:red;">Error: Código de producto inválido</h2><a href="/salidas"><button class="btn">Volver</button></a>`);
+      return res.send(`
+        <h2 style="color:red;">Error: Código de producto inválido</h2>
+        <a href="/salidas"><button class="btn">Volver</button></a>
+      `);
     }
 
+    // 3) Inventario destino (con propietario)
     const [[invDestino]] = await conn.query(`
-      SELECT id_inventario, stock_inventario, caducidad_inventario
+      SELECT
+        id_inventario,
+        stock_inventario,
+        caducidad_inventario,
+        id_cliente_propietario
       FROM inventario
       WHERE producto_FKinventario = ? AND lote_inventario = ?
       FOR UPDATE
@@ -1704,69 +3017,138 @@ app.post('/salidas/editar/:id', estaLogueado, puedeEditarSalidas, async (req, re
 
     if (!invDestino) {
       await conn.rollback();
-      return res.send(`<h2 style="color:red;">Error: Lote seleccionado no existe</h2><a href="/salidas"><button class="btn">Volver</button></a>`);
+      return res.send(`
+        <h2 style="color:red;">Error: Lote seleccionado no existe</h2>
+        <a href="/salidas"><button class="btn">Volver</button></a>
+      `);
     }
 
     const mismoInventario = (Number(invDestino.id_inventario) === Number(original.inv_original));
 
+    // 4) Orden de compra final
+    const ordenFinal = (orden_de_compra && `${orden_de_compra}`.trim() !== '')
+      ? `${orden_de_compra}`.trim()
+      : original.orden_original;
+
     if (mismoInventario) {
+      // ===== MISMO INVENTARIO: sólo delta =====
       const stockActual = Number(invDestino.stock_inventario);
       const delta = nuevaCant - cantOriginal;
+
       if (delta > 0 && delta > stockActual) {
         await conn.rollback();
-        return res.send(`<h2 style="color:red;">Error: La cantidad excede el stock disponible para este ajuste</h2><a href="/salidas"><button class="btn">Volver</button></a>`);
+        return res.send(`
+          <h2 style="color:red;">Error: La cantidad excede el stock disponible para este ajuste</h2>
+          <a href="/salidas"><button class="btn">Volver</button></a>
+        `);
       }
 
       const stockNuevo = stockActual - delta;
-      await conn.query(`UPDATE inventario SET stock_inventario = ? WHERE id_inventario = ?`, [stockNuevo, invDestino.id_inventario]);
+
+      await conn.query(
+        `UPDATE inventario
+            SET stock_inventario = ?
+          WHERE id_inventario = ?`,
+        [stockNuevo, invDestino.id_inventario]
+      );
 
       await conn.query(`
         UPDATE salida
-           SET fecha_salida = ?, id_cliente = ?, id_inventario = ?, lote = ?, cantidad = ?,
-               precioDeVenta_salida = ?, totalFacturado_salida = ?, ordenDeCompra_salida = ?, folioDeFacturacion_salida = ?
+           SET fecha_salida = ?,
+               id_cliente = ?,
+               id_inventario = ?,
+               id_cliente_propietario = ?,
+               lote = ?,
+               cantidad = ?,
+               precioDeVenta_salida = ?,
+               totalFacturado_salida = ?,
+               ordenDeCompra_salida = ?,
+               folioDeFacturacion_salida = ?
          WHERE id_salida = ?
       `, [
-        Fecha, ClienteId, invDestino.id_inventario, Lote, nuevaCant,
-        Precio_Venta, Total_Facturado,
-        (orden_de_compra && `${orden_de_compra}`.trim() !== '' ? `${orden_de_compra}`.trim() : original.ordenDeCompra_salida),
+        Fecha,
+        ClienteId,
+        invDestino.id_inventario,
+        invDestino.id_cliente_propietario || null,
+        Lote,
+        nuevaCant,
+        Precio_Venta,
+        Total_Facturado,
+        ordenFinal,
         Folio_de_Facturacion || null,
         salidaId
       ]);
     } else {
+      // ===== CAMBIO DE INVENTARIO =====
+
+      // Regresar stock al inventario original
       if (original.inv_original) {
-        await conn.query(`UPDATE inventario SET stock_inventario = stock_inventario + ? WHERE id_inventario = ?`,
-          [cantOriginal, original.inv_original]);
+        await conn.query(
+          `UPDATE inventario
+              SET stock_inventario = stock_inventario + ?
+            WHERE id_inventario = ?`,
+          [cantOriginal, original.inv_original]
+        );
       }
 
+      // Validar stock en inventario destino
       if (Number(invDestino.stock_inventario) < nuevaCant) {
         await conn.rollback();
-        return res.send(`<h2 style="color:red;">Error: Stock insuficiente en el nuevo lote seleccionado</h2><a href="/salidas"><button class="btn">Volver</button></a>`);
+        return res.send(`
+          <h2 style="color:red;">Error: Stock insuficiente en el nuevo lote seleccionado</h2>
+          <a href="/salidas"><button class="btn">Volver</button></a>
+        `);
       }
 
-      await conn.query(`UPDATE inventario SET stock_inventario = stock_inventario - ? WHERE id_inventario = ?`,
-        [nuevaCant, invDestino.id_inventario]);
+      // Descontar del inventario destino
+      await conn.query(
+        `UPDATE inventario
+            SET stock_inventario = stock_inventario - ?
+          WHERE id_inventario = ?`,
+        [nuevaCant, invDestino.id_inventario]
+      );
 
+      // Actualizar salida
       await conn.query(`
         UPDATE salida
-           SET fecha_salida = ?, id_cliente = ?, id_inventario = ?, lote = ?, cantidad = ?,
-               precioDeVenta_salida = ?, totalFacturado_salida = ?, ordenDeCompra_salida = ?, folioDeFacturacion_salida = ?
+           SET fecha_salida = ?,
+               id_cliente = ?,
+               id_inventario = ?,
+               id_cliente_propietario = ?,
+               lote = ?,
+               cantidad = ?,
+               precioDeVenta_salida = ?,
+               totalFacturado_salida = ?,
+               ordenDeCompra_salida = ?,
+               folioDeFacturacion_salida = ?
          WHERE id_salida = ?
       `, [
-        Fecha, ClienteId, invDestino.id_inventario, Lote, nuevaCant,
-        Precio_Venta, Total_Facturado,
-        (orden_de_compra && `${orden_de_compra}`.trim() !== '' ? `${orden_de_compra}`.trim() : original.ordenDeCompra_salida),
+        Fecha,
+        ClienteId,
+        invDestino.id_inventario,
+        invDestino.id_cliente_propietario || null,
+        Lote,
+        nuevaCant,
+        Precio_Venta,
+        Total_Facturado,
+        ordenFinal,
         Folio_de_Facturacion || null,
         salidaId
       ]);
 
+      // Si el inventario viejo queda en 0 → agotado
       if (original.inv_original) {
         const [[revViejo]] = await conn.query(
           `SELECT stock_inventario FROM inventario WHERE id_inventario = ?`,
           [original.inv_original]
         );
         if (revViejo && Number(revViejo.stock_inventario) === 0) {
-          await conn.query(`UPDATE inventario SET estadoDelProducto_inventario = 'Agotado' WHERE id_inventario = ?`,
-            [original.inv_original]);
+          await conn.query(
+            `UPDATE inventario
+                SET estadoDelProducto_inventario = 'Agotado'
+              WHERE id_inventario = ?`,
+            [original.inv_original]
+          );
         }
       }
     }
@@ -1782,74 +3164,6 @@ app.post('/salidas/editar/:id', estaLogueado, puedeEditarSalidas, async (req, re
   }
 });
 
-/* ===== JS auxiliar para formulario de salidas ===== */
-app.get('/js/form_salida.js', (req, res) => {
-  res.type('application/javascript').send(`
-document.addEventListener('DOMContentLoaded', function () {
-  var productoSelect = document.getElementById('Producto');
-  var loteSelect = document.getElementById('Lote');
-  var cantidadInput = document.getElementById('Cantidad');
-  var LOTES = window.LOTES || [];
-  var salida = window.salida || { Producto: null, Lote: null, CantidadOriginal: 0 };
-
-  function poblarLotes() {
-    var codigo = productoSelect.value;
-    loteSelect.innerHTML = '<option value="">-- Selecciona un lote --</option>';
-    loteSelect.disabled = true;
-
-    if (!codigo) { actualizarMax(); return; }
-
-    var filtrados = LOTES.filter(function (l) { return String(l.Producto) === String(codigo); });
-
-    filtrados.forEach(function (l) {
-      var opt = document.createElement('option');
-      opt.value = l.Lote;
-      opt.textContent = l.Lote + ' (stock: ' + l.Stock + ')';
-      opt.dataset.stock = l.Stock;
-      loteSelect.appendChild(opt);
-    });
-
-    loteSelect.disabled = filtrados.length === 0;
-
-    var actual = loteSelect.getAttribute('data-current-lote') || salida.Lote;
-    if (actual) {
-      var found = Array.from(loteSelect.options).find(function (o) { return o.value === actual; });
-      if (found) { found.selected = true; }
-    }
-
-    actualizarMax();
-  }
-
-  function actualizarMax() {
-    var sel = loteSelect.selectedOptions[0];
-    if (sel && sel.dataset.stock) {
-      var base = parseInt(sel.dataset.stock, 10);
-      var mismoProd = String(productoSelect.value) === String(salida.Producto);
-      var mismoLote = String(sel.value) === String(salida.Lote);
-      var maxPermitido = (mismoProd && mismoLote)
-        ? (base + Number(salida.CantidadOriginal || 0))
-        : base;
-      cantidadInput.max = maxPermitido;
-    } else {
-      cantidadInput.removeAttribute('max');
-    }
-  }
-
-  productoSelect.addEventListener('change', poblarLotes);
-  loteSelect.addEventListener('change', actualizarMax);
-
-  poblarLotes();
-  actualizarMax();
-});
-
-if (window.location.pathname.includes('/salidas/nueva')) {
-  console.log('Formulario: Nueva salida');
-}
-if (window.location.pathname.includes('/salidas/editar')) {
-  console.log('Formulario: Editar salida');
-}
-  `);
-});
 
 /* ===== Inventario ===== */
 app.get('/inventario', estaLogueado, async (req, res) => {
@@ -1861,31 +3175,30 @@ app.get('/inventario', estaLogueado, async (req, res) => {
         i.lote_inventario,
         i.stock_inventario,
         i.caducidad_inventario,
-
-        CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS ProductoNombre,
-        c.clave_catalogo        AS Codigo,
-        c.presentacion_catalogo AS Presentacion,
-        c.precioVenta_catalogo,
-        c.costoUnitario_catalogo,
-        DATEDIFF(i.caducidad_inventario, CURDATE()) AS diasRestantes_inventario,
+        i.estadoDelProducto_inventario,
+        i.id_cliente_propietario,
         DATEDIFF(i.caducidad_inventario, CURDATE()) AS DiasRestantes,
-        CASE
-          WHEN i.caducidad_inventario IS NULL THEN 'Vigente'
-          WHEN i.caducidad_inventario < CURDATE() THEN 'Caducado'
-          WHEN DATEDIFF(i.caducidad_inventario, CURDATE()) <= 30 THEN 'Próximo a vencer'
-          ELSE 'Vigente'
-        END AS estadoDelProducto_inventario
+        CONCAT('(', c.clave_catalogo, ') ', c.nombreProdu_catalogo) AS ProductoNombre,
+        cli.nombre_cliente AS PropietarioNombre
       FROM inventario i
-      JOIN catalogo c ON i.producto_FKinventario = c.id_catalogo
-      ORDER BY i.caducidad_inventario ASC
+      LEFT JOIN catalogo c
+        ON i.producto_FKinventario = c.id_catalogo
+      LEFT JOIN cliente cli
+        ON i.id_cliente_propietario = cli.id_cliente
+      ORDER BY c.nombreProdu_catalogo ASC, i.caducidad_inventario ASC
     `);
 
-    res.render('inventario', { inventario, usuario: req.session.usuario });
+    res.render('inventario', {
+      inventario,
+      usuario: req.session.usuario
+    });
+
   } catch (err) {
-    console.error('Error cargando inventario:', err);
+    console.error(err);
     res.send('Error cargando inventario');
   }
 });
+
 
 /* ===== Clientes ===== */
 app.get('/clientes', estaLogueado, async (req, res) => {
@@ -1897,14 +3210,15 @@ app.get('/clientes', estaLogueado, async (req, res) => {
         RFC_cliente       AS RFC,
         direccion_cliente AS Direccion,
         telefono_cliente  AS Telefono,
-        correo_cliente    AS Correo
+        correo_cliente    AS Correo,
+        es_3pl            AS Es3PL
       FROM cliente
       ORDER BY nombre_cliente ASC
     `);
 
-    res.render('clientes', { 
-      clientes: resultados, 
-      usuario: req.session.usuario 
+    res.render('clientes', {
+      clientes: resultados,
+      usuario: req.session.usuario
     });
 
   } catch (err) {
@@ -1922,7 +3236,8 @@ app.get('/clientes/exportar', estaLogueado, async (req, res) => {
         RFC_cliente       AS RFC,
         direccion_cliente AS Direccion,
         telefono_cliente  AS Telefono,
-        correo_cliente    AS Correo
+        correo_cliente    AS Correo,
+        es_3pl            AS Es3PL
       FROM cliente
       ORDER BY nombre_cliente ASC
     `);
@@ -1932,15 +3247,15 @@ app.get('/clientes/exportar', estaLogueado, async (req, res) => {
     const ws = workbook.addWorksheet('Clientes');
 
     ws.columns = [
-      { header: 'Nombre',     key: 'Nombre',     width: 40 },
-      { header: 'RFC',        key: 'RFC',        width: 20 },
-      { header: 'Dirección',  key: 'Direccion',  width: 50 },
-      { header: 'Teléfono',   key: 'Telefono',   width: 20 },
-      { header: 'Correo',     key: 'Correo',     width: 35 },
+      { header: 'Nombre',    key: 'Nombre',   width: 40 },
+      { header: 'RFC',       key: 'RFC',      width: 20 },
+      { header: 'Dirección', key: 'Direccion',width: 50 },
+      { header: 'Teléfono',  key: 'Telefono', width: 20 },
+      { header: 'Correo',    key: 'Correo',   width: 35 },
+      { header: 'Es 3PL',    key: 'Es3PL',    width: 10 },
     ];
 
     clientes.forEach(c => ws.addRow(c));
-
     ws.getRow(1).font = { bold: true };
 
     res.setHeader(
@@ -1960,19 +3275,41 @@ app.get('/clientes/exportar', estaLogueado, async (req, res) => {
   }
 });
 
-
+/* ===== Nuevo Cliente ===== */
 app.get('/clientes/nuevo', estaLogueado, puedeEditarClientes, async (req, res) => {
-  const cliente = { Id: 0, Nombre: '', RFC: '', Direccion: '', Telefono: '', Correo: '' };
-  res.render('editar_cliente', { editar: false, cliente, usuario: req.session.usuario });
+  const cliente = {
+    Id: 0,
+    Nombre: '',
+    RFC: '',
+    Direccion: '',
+    Telefono: '',
+    Correo: '',
+    Es3PL: 0
+  };
+  res.render('editar_cliente', {
+    editar: false,
+    cliente,
+    usuario: req.session.usuario
+  });
 });
 
+function parseEs3pl(value) {
+  if (!value) return 0;
+  const v = String(value).toLowerCase();
+  return (v === 'on' || v === '1' || v === 'true') ? 1 : 0;
+}
+
+/* ===== Nuevo Cliente ===== */
 app.post('/clientes/nuevo', estaLogueado, puedeEditarClientes, async (req, res) => {
-  const { Nombre, RFC, Direccion, Telefono, Correo } = req.body;
+  const { Nombre, RFC, Direccion, Telefono, Correo, es_3pl } = req.body;
+  const es3pl = parseEs3pl(es_3pl);
+
   try {
     await db.query(
-      `INSERT INTO cliente (nombre_cliente, RFC_cliente, direccion_cliente, telefono_cliente, correo_cliente)
-       VALUES (?, ?, ?, ?, ?)`,
-      [Nombre, RFC, Direccion, Telefono, Correo]
+      `INSERT INTO cliente
+        (nombre_cliente, RFC_cliente, direccion_cliente, telefono_cliente, correo_cliente, es_3pl)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [Nombre, RFC, Direccion, Telefono, Correo, es3pl]
     );
     res.redirect('/clientes');
   } catch (err) {
@@ -1981,6 +3318,7 @@ app.post('/clientes/nuevo', estaLogueado, puedeEditarClientes, async (req, res) 
   }
 });
 
+/* ===== Editar Cliente ===== */
 app.get('/clientes/editar/:id', estaLogueado, puedeEditarClientes, async (req, res) => {
   const clienteId = req.params.id;
   try {
@@ -1991,29 +3329,44 @@ app.get('/clientes/editar/:id', estaLogueado, puedeEditarClientes, async (req, r
         RFC_cliente       AS RFC,
         direccion_cliente AS Direccion,
         telefono_cliente  AS Telefono,
-        correo_cliente    AS Correo
+        correo_cliente    AS Correo,
+        es_3pl            AS Es3PL
       FROM cliente
       WHERE id_cliente = ?
     `, [clienteId]);
 
-    if (resultados.length === 0) return res.send('Cliente no encontrado');
+    if (resultados.length === 0) {
+      return res.send('Cliente no encontrado');
+    }
 
-    res.render('editar_cliente', { editar: true, cliente: resultados[0], usuario: req.session.usuario });
+    res.render('editar_cliente', {
+      editar: true,
+      cliente: resultados[0],
+      usuario: req.session.usuario
+    });
   } catch (err) {
     console.error('Error al cargar cliente:', err);
     res.send('Error al cargar cliente');
   }
 });
 
+/* ===== Editar Cliente ===== */
 app.post('/clientes/editar/:id', estaLogueado, puedeEditarClientes, async (req, res) => {
   const clienteId = req.params.id;
-  const { Nombre, RFC, Direccion, Telefono, Correo } = req.body;
+  const { Nombre, RFC, Direccion, Telefono, Correo, es_3pl } = req.body;
+  const es3pl = parseEs3pl(es_3pl);
+
   try {
     await db.query(
       `UPDATE cliente
-          SET nombre_cliente = ?, RFC_cliente = ?, direccion_cliente = ?, telefono_cliente = ?, correo_cliente = ?
-        WHERE id_cliente = ?`,
-      [Nombre, RFC, Direccion, Telefono, Correo, clienteId]
+         SET nombre_cliente    = ?,
+             RFC_cliente       = ?,
+             direccion_cliente = ?,
+             telefono_cliente  = ?,
+             correo_cliente    = ?,
+             es_3pl            = ?
+       WHERE id_cliente = ?`,
+      [Nombre, RFC, Direccion, Telefono, Correo, es3pl, clienteId]
     );
     res.redirect('/clientes');
   } catch (err) {
@@ -2021,7 +3374,7 @@ app.post('/clientes/editar/:id', estaLogueado, puedeEditarClientes, async (req, 
     res.send('Error al actualizar cliente');
   }
 });
-
+/* ===== Eliminar Cliente ===== */
 app.post('/clientes/eliminar/:id', estaLogueado, puedeEditarClientes, async (req, res) => {
   const clienteId = req.params.id;
   try {
@@ -2032,6 +3385,7 @@ app.post('/clientes/eliminar/:id', estaLogueado, puedeEditarClientes, async (req
     res.send('Error al eliminar cliente');
   }
 });
+
 
 /* ===== Cotizaciones ===== */
 function formatDateLocal(date) {
@@ -2108,28 +3462,28 @@ async function generateFolioIfEmpty(conn, folioInput) {
 app.get('/cotizaciones', estaLogueado, async (req, res) => {
   try {
     // ========= 1) Leer filtros desde query =========
-    const qRaw           = (req.query.q || '').toString().trim();
-    const mesRaw         = (req.query.mes || '').toString().trim();
-    const anioRaw        = (req.query.anio || '').toString().trim();
+    const qRaw = (req.query.q || '').toString().trim();
+    const mesRaw = (req.query.mes || '').toString().trim();
+    const anioRaw = (req.query.anio || '').toString().trim();
     const dependenciaRaw = (req.query.dependencia || '').toString().trim();
     const responsableRaw = (req.query.responsable || '').toString().trim(); // id_usuario
-    const estatusRaw     = (req.query.estatus || '').toString().trim();     // 'aprobada','rechazada','pendiente'
+    const estatusRaw = (req.query.estatus || '').toString().trim();     // 'aprobada','rechazada','pendiente'
 
-    let q           = qRaw;
-    let mes         = mesRaw ? parseInt(mesRaw, 10)  : null;
-    let anio        = anioRaw ? parseInt(anioRaw, 10) : null;
+    let q = qRaw;
+    let mes = mesRaw ? parseInt(mesRaw, 10) : null;
+    let anio = anioRaw ? parseInt(anioRaw, 10) : null;
     let dependencia = dependenciaRaw || '';
     let responsable = responsableRaw || '';
-    let estatus     = estatusRaw || '';
+    let estatus = estatusRaw || '';
 
-    if (isNaN(mes))  mes  = null;
+    if (isNaN(mes)) mes = null;
     if (isNaN(anio)) anio = null;
 
     // Mapeo de estatus del filtro (minúsculas) a lo que guardas en BD
     const mapaEstatus = {
-      'aprobada'  : 'Aprobada',
-      'rechazada' : 'Rechazada',
-      'pendiente' : 'Pendiente'
+      'aprobada': 'Aprobada',
+      'rechazada': 'Rechazada',
+      'pendiente': 'Pendiente'
     };
     const estatusBD = estatus ? (mapaEstatus[estatus.toLowerCase()] || null) : null;
 
@@ -2250,7 +3604,7 @@ app.get('/cotizaciones', estaLogueado, async (req, res) => {
 
     periodos.forEach(p => {
       if (p.anio) setAnios.add(p.anio);
-      if (p.mes)  setMeses.add(p.mes);
+      if (p.mes) setMeses.add(p.mes);
     });
 
     const listaAniosCot = Array.from(setAnios).sort((a, b) => b - a); // años desc
@@ -2300,27 +3654,27 @@ app.get('/cotizaciones', estaLogueado, async (req, res) => {
 app.get('/cotizaciones/exportar', estaLogueado, async (req, res) => {
   try {
     // ========= 1) Leer mismos filtros que /cotizaciones =========
-    const qRaw           = (req.query.q || '').toString().trim();
-    const mesRaw         = (req.query.mes || '').toString().trim();
-    const anioRaw        = (req.query.anio || '').toString().trim();
+    const qRaw = (req.query.q || '').toString().trim();
+    const mesRaw = (req.query.mes || '').toString().trim();
+    const anioRaw = (req.query.anio || '').toString().trim();
     const dependenciaRaw = (req.query.dependencia || '').toString().trim();
     const responsableRaw = (req.query.responsable || '').toString().trim(); // id_usuario
-    const estatusRaw     = (req.query.estatus || '').toString().trim();     // 'aprobada','rechazada','pendiente'
+    const estatusRaw = (req.query.estatus || '').toString().trim();     // 'aprobada','rechazada','pendiente'
 
-    let q           = qRaw;
-    let mes         = mesRaw ? parseInt(mesRaw, 10)  : null;
-    let anio        = anioRaw ? parseInt(anioRaw, 10) : null;
+    let q = qRaw;
+    let mes = mesRaw ? parseInt(mesRaw, 10) : null;
+    let anio = anioRaw ? parseInt(anioRaw, 10) : null;
     let dependencia = dependenciaRaw || '';
     let responsable = responsableRaw || '';
-    let estatus     = estatusRaw || '';
+    let estatus = estatusRaw || '';
 
-    if (isNaN(mes))  mes  = null;
+    if (isNaN(mes)) mes = null;
     if (isNaN(anio)) anio = null;
 
     const mapaEstatus = {
-      'aprobada'  : 'Aprobada',
-      'rechazada' : 'Rechazada',
-      'pendiente' : 'Pendiente'
+      'aprobada': 'Aprobada',
+      'rechazada': 'Rechazada',
+      'pendiente': 'Pendiente'
     };
     const estatusBD = estatus ? (mapaEstatus[estatus.toLowerCase()] || null) : null;
 
@@ -2400,34 +3754,34 @@ app.get('/cotizaciones/exportar', estaLogueado, async (req, res) => {
     const worksheet = workbook.addWorksheet('Cotizaciones');
 
     worksheet.columns = [
-      { header: 'Folio',                   key: 'folioVisible',        width: 15 },
-      { header: 'No. Folio (consecutivo)', key: 'noDeFolioFK',        width: 20 },
-      { header: 'Fecha de folio',          key: 'fechaDeFolio',       width: 15 },
-      { header: 'Partidas cotizadas',      key: 'partidasCotizadas',  width: 18 },
-      { header: 'Monto máx. cotizado',     key: 'montoMaxCotizado',   width: 20 },
-      { header: 'Dependencia',             key: 'dependencia',        width: 30 },
-      { header: 'Vigencia (días)',         key: 'vigenciaDeLaCotizacion', width: 16 },
-      { header: 'Fecha fin',               key: 'fechaFinDeLaCotizacion', width: 15 },
-      { header: 'Responsable',             key: 'responsableDeLaCotizacion', width: 30 },
-      { header: 'Estatus',                 key: 'estatusDeLaCotizacion',    width: 15 },
-      { header: 'Partidas asignadas',      key: 'partidasAsignadas',        width: 18 },
-      { header: 'Monto máx. asignado',     key: 'montoMaximoAsignado',      width: 20 }
+      { header: 'Folio', key: 'folioVisible', width: 15 },
+      { header: 'No. Folio (consecutivo)', key: 'noDeFolioFK', width: 20 },
+      { header: 'Fecha de folio', key: 'fechaDeFolio', width: 15 },
+      { header: 'Partidas cotizadas', key: 'partidasCotizadas', width: 18 },
+      { header: 'Monto máx. cotizado', key: 'montoMaxCotizado', width: 20 },
+      { header: 'Dependencia', key: 'dependencia', width: 30 },
+      { header: 'Vigencia (días)', key: 'vigenciaDeLaCotizacion', width: 16 },
+      { header: 'Fecha fin', key: 'fechaFinDeLaCotizacion', width: 15 },
+      { header: 'Responsable', key: 'responsableDeLaCotizacion', width: 30 },
+      { header: 'Estatus', key: 'estatusDeLaCotizacion', width: 15 },
+      { header: 'Partidas asignadas', key: 'partidasAsignadas', width: 18 },
+      { header: 'Monto máx. asignado', key: 'montoMaximoAsignado', width: 20 }
     ];
 
     rows.forEach(r => {
       worksheet.addRow({
-        folioVisible:              r.folioVisible || '',
-        noDeFolioFK:               r.noDeFolioFK || '',
-        fechaDeFolio:              r.fechaDeFolio ? new Date(r.fechaDeFolio).toLocaleDateString('es-MX') : '',
-        partidasCotizadas:         r.partidasCotizadas || 0,
-        montoMaxCotizado:          r.montoMaxCotizado || 0,
-        dependencia:               r.dependencia || '',
-        vigenciaDeLaCotizacion:    r.vigenciaDeLaCotizacion != null ? r.vigenciaDeLaCotizacion : '',
-        fechaFinDeLaCotizacion:    r.fechaFinDeLaCotizacion ? new Date(r.fechaFinDeLaCotizacion).toLocaleDateString('es-MX') : '',
+        folioVisible: r.folioVisible || '',
+        noDeFolioFK: r.noDeFolioFK || '',
+        fechaDeFolio: r.fechaDeFolio ? new Date(r.fechaDeFolio).toLocaleDateString('es-MX') : '',
+        partidasCotizadas: r.partidasCotizadas || 0,
+        montoMaxCotizado: r.montoMaxCotizado || 0,
+        dependencia: r.dependencia || '',
+        vigenciaDeLaCotizacion: r.vigenciaDeLaCotizacion != null ? r.vigenciaDeLaCotizacion : '',
+        fechaFinDeLaCotizacion: r.fechaFinDeLaCotizacion ? new Date(r.fechaFinDeLaCotizacion).toLocaleDateString('es-MX') : '',
         responsableDeLaCotizacion: r.responsableDeLaCotizacion || '',
-        estatusDeLaCotizacion:     r.estatusDeLaCotizacion || '',
-        partidasAsignadas:         r.partidasAsignadas || 0,
-        montoMaximoAsignado:       r.montoMaximoAsignado || 0
+        estatusDeLaCotizacion: r.estatusDeLaCotizacion || '',
+        partidasAsignadas: r.partidasAsignadas || 0,
+        montoMaximoAsignado: r.montoMaximoAsignado || 0
       });
     });
 
@@ -2705,10 +4059,10 @@ app.get('/facturacion', estaLogueado, soloAdminYFacturacion, async (req, res) =>
   try {
     const hoy = new Date();
 
-    const q            = (req.query.q || '').trim();
+    const q = (req.query.q || '').trim();
     const filtroEstado = (req.query.estado || '').trim();
-    const mesRaw       = req.query.mes;
-    const anioRaw      = req.query.anio;
+    const mesRaw = req.query.mes;
+    const anioRaw = req.query.anio;
 
     let mes = null;
     let anio = null;
@@ -2867,9 +4221,9 @@ app.get('/facturacion/exportar', estaLogueado, soloAdminYFacturacion, async (req
   try {
     const hoy = new Date();
 
-    const q            = (req.query.q || '').trim();
+    const q = (req.query.q || '').trim();
     const filtroEstado = (req.query.estado || '').trim();
-    const anioRaw      = req.query.anio;
+    const anioRaw = req.query.anio;
 
     // Año a exportar: si no viene, usamos el año actual
     let anio = anioRaw ? parseInt(anioRaw, 10) : hoy.getFullYear();
@@ -2962,19 +4316,19 @@ app.get('/facturacion/exportar', estaLogueado, soloAdminYFacturacion, async (req
 
         // Encabezados de columnas (puedes ajustar a tu gusto)
         ws.columns = [
-          { header: 'Factura',            key: 'factura',       width: 15 },
-          { header: 'Fecha',              key: 'fecha',         width: 12 },
-          { header: 'Cliente',            key: 'cliente',       width: 30 },
-          { header: 'RFC',                key: 'rfc',           width: 18 },
-          { header: 'Producto (clave)',   key: 'productoClave', width: 18 },
-          { header: 'Descripción',        key: 'productoNombre',width: 40 },
-          { header: 'ODC',                key: 'odc',           width: 18 },
-          { header: 'Folio fiscal',       key: 'folio_fiscal',  width: 32 },
-          { header: 'Monto',              key: 'monto',         width: 18 },
-          { header: 'Estado',             key: 'estado',        width: 12 },
-          { header: 'Marcado',            key: 'marcado',       width: 10 },
-          { header: 'Estatus adm.',       key: 'estatus_adm',   width: 20 },
-          { header: 'Usuario captura',    key: 'usuario',       width: 25 },
+          { header: 'Factura', key: 'factura', width: 15 },
+          { header: 'Fecha', key: 'fecha', width: 12 },
+          { header: 'Cliente', key: 'cliente', width: 30 },
+          { header: 'RFC', key: 'rfc', width: 18 },
+          { header: 'Producto (clave)', key: 'productoClave', width: 18 },
+          { header: 'Descripción', key: 'productoNombre', width: 40 },
+          { header: 'ODC', key: 'odc', width: 18 },
+          { header: 'Folio fiscal', key: 'folio_fiscal', width: 32 },
+          { header: 'Monto', key: 'monto', width: 18 },
+          { header: 'Estado', key: 'estado', width: 12 },
+          { header: 'Marcado', key: 'marcado', width: 10 },
+          { header: 'Estatus adm.', key: 'estatus_adm', width: 20 },
+          { header: 'Usuario captura', key: 'usuario', width: 25 },
         ];
 
         // Filas
@@ -2989,19 +4343,19 @@ app.get('/facturacion/exportar', estaLogueado, soloAdminYFacturacion, async (req
           }
 
           ws.addRow({
-            factura:        f.factura || `${f.serie_factura || ''}-${String(f.numero_factura || '').padStart(3, '0')}`,
-            fecha:          fechaTxt,
-            cliente:        f.nombre_cliente || '',
-            rfc:            f.RFC_cliente || '',
-            productoClave:  f.clave_catalogo || '',
+            factura: f.factura || `${f.serie_factura || ''}-${String(f.numero_factura || '').padStart(3, '0')}`,
+            fecha: fechaTxt,
+            cliente: f.nombre_cliente || '',
+            rfc: f.RFC_cliente || '',
+            productoClave: f.clave_catalogo || '',
             productoNombre: f.nombreProdu_catalogo || '',
-            odc:            f.odc || '',
-            folio_fiscal:   f.folio_fiscal || '',
-            monto:          f.monto || 0,
-            estado:         f.estado || '',
-            marcado:        f.marcado ? 'Sí' : 'No',
-            estatus_adm:    f.estatus_administrativo || '',
-            usuario:        f.nombre_usuario || ''
+            odc: f.odc || '',
+            folio_fiscal: f.folio_fiscal || '',
+            monto: f.monto || 0,
+            estado: f.estado || '',
+            marcado: f.marcado ? 'Sí' : 'No',
+            estatus_adm: f.estatus_administrativo || '',
+            usuario: f.nombre_usuario || ''
           });
         });
 
@@ -3010,7 +4364,7 @@ app.get('/facturacion/exportar', estaLogueado, soloAdminYFacturacion, async (req
         // Opcional: auto-filtro
         ws.autoFilter = {
           from: 'A1',
-          to:   'M1'
+          to: 'M1'
         };
       });
 
@@ -3052,10 +4406,10 @@ app.get('/facturacion/nueva', estaLogueado, soloAdminYFacturacion, async (req, r
     const seriePorDefecto = 'FD';
 
     // Filtros actuales (para regresar al mismo periodo tras guardar)
-    const filtroMes    = req.query.mes    || '';
-    const filtroAnio   = req.query.anio   || '';
+    const filtroMes = req.query.mes || '';
+    const filtroAnio = req.query.anio || '';
     const filtroEstado = req.query.estado || '';
-    const filtroQ      = req.query.q      || '';
+    const filtroQ = req.query.q || '';
 
     res.render('editar_facturacion', {
       usuario: req.session.usuario,
@@ -3114,10 +4468,10 @@ app.get('/facturacion/editar/:id_factura', estaLogueado, soloAdminYFacturacion, 
       : '';
 
     // Filtros actuales
-    const filtroMes    = req.query.mes    || '';
-    const filtroAnio   = req.query.anio   || '';
+    const filtroMes = req.query.mes || '';
+    const filtroAnio = req.query.anio || '';
     const filtroEstado = req.query.estado || '';
-    const filtroQ      = req.query.q      || '';
+    const filtroQ = req.query.q || '';
 
     res.render('editar_facturacion', {
       usuario: req.session.usuario,
@@ -3167,10 +4521,10 @@ app.post('/facturacion/nueva', estaLogueado, soloAdminYFacturacion, async (req, 
     // 🔹 Si no vinieron filtros en el form, tomarlos de sesión (mantener filtros)
     if (!filtro_mes && !filtro_anio && !filtro_estado && !filtro_q && req.session.filtrosFacturacion) {
       const f = req.session.filtrosFacturacion;
-      filtro_mes    = f.mes    || '';
-      filtro_anio   = f.anio   || '';
+      filtro_mes = f.mes || '';
+      filtro_anio = f.anio || '';
       filtro_estado = f.estado || '';
-      filtro_q      = f.q      || '';
+      filtro_q = f.q || '';
     }
 
     // Limpia serie permitiendo que escriban "FD", "fd-22", etc.
@@ -3263,10 +4617,10 @@ app.post('/facturacion/nueva', estaLogueado, soloAdminYFacturacion, async (req, 
     let redirectUrl = '/facturacion';
     const query = [];
 
-    if (filtro_mes)    query.push('mes='    + encodeURIComponent(filtro_mes));
-    if (filtro_anio)   query.push('anio='   + encodeURIComponent(filtro_anio));
+    if (filtro_mes) query.push('mes=' + encodeURIComponent(filtro_mes));
+    if (filtro_anio) query.push('anio=' + encodeURIComponent(filtro_anio));
     if (filtro_estado) query.push('estado=' + encodeURIComponent(filtro_estado));
-    if (filtro_q)      query.push('q='      + encodeURIComponent(filtro_q));
+    if (filtro_q) query.push('q=' + encodeURIComponent(filtro_q));
 
     // Si no venían filtros ni hay en sesión, usamos el mes/año de la fecha
     if (query.length === 0 && fecha) {
@@ -3311,10 +4665,10 @@ app.post('/facturacion/nueva', estaLogueado, soloAdminYFacturacion, async (req, 
         factura: null,
         error: err.message || 'Error al guardar la factura',
         ruta: 'facturacion',
-        filtroMes:    req.body.filtro_mes    || '',
-        filtroAnio:   req.body.filtro_anio   || '',
+        filtroMes: req.body.filtro_mes || '',
+        filtroAnio: req.body.filtro_anio || '',
         filtroEstado: req.body.filtro_estado || '',
-        filtroQ:      req.body.filtro_q      || ''
+        filtroQ: req.body.filtro_q || ''
       });
     } catch (err2) {
       console.error('Error cargando formulario tras fallo de guardado:', err2);
@@ -3351,16 +4705,16 @@ app.post('/facturacion/editar/:id_factura', estaLogueado, soloAdminYFacturacion,
     // 🔹 Si no vinieron filtros en el form, tomarlos de sesión (mantener filtros)
     if (!filtro_mes && !filtro_anio && !filtro_estado && !filtro_q && req.session.filtrosFacturacion) {
       const f = req.session.filtrosFacturacion;
-      filtro_mes    = f.mes    || '';
-      filtro_anio   = f.anio   || '';
+      filtro_mes = f.mes || '';
+      filtro_anio = f.anio || '';
       filtro_estado = f.estado || '';
-      filtro_q      = f.q      || '';
+      filtro_q = f.q || '';
     }
 
     if (!serie_factura) throw new Error('La serie de la factura es obligatoria.');
-    if (!fecha)         throw new Error('La fecha de la factura es obligatoria.');
-    if (!producto_fk)   throw new Error('Debe seleccionarse un producto.');
-    if (!folio_fiscal)  throw new Error('El folio fiscal es obligatorio.');
+    if (!fecha) throw new Error('La fecha de la factura es obligatoria.');
+    if (!producto_fk) throw new Error('Debe seleccionarse un producto.');
+    if (!folio_fiscal) throw new Error('El folio fiscal es obligatorio.');
 
     const estadoValido = ['pagado', 'pendiente', 'cancelado'].includes(estado)
       ? estado
@@ -3428,10 +4782,10 @@ app.post('/facturacion/editar/:id_factura', estaLogueado, soloAdminYFacturacion,
     let redirectUrl = '/facturacion';
     const query = [];
 
-    if (filtro_mes)    query.push('mes='    + encodeURIComponent(filtro_mes));
-    if (filtro_anio)   query.push('anio='   + encodeURIComponent(filtro_anio));
+    if (filtro_mes) query.push('mes=' + encodeURIComponent(filtro_mes));
+    if (filtro_anio) query.push('anio=' + encodeURIComponent(filtro_anio));
     if (filtro_estado) query.push('estado=' + encodeURIComponent(filtro_estado));
-    if (filtro_q)      query.push('q='      + encodeURIComponent(filtro_q));
+    if (filtro_q) query.push('q=' + encodeURIComponent(filtro_q));
 
     if (query.length === 0 && fecha) {
       const fechaObj = new Date(fecha);
@@ -3484,10 +4838,10 @@ app.post('/facturacion/editar/:id_factura', estaLogueado, soloAdminYFacturacion,
         factura,
         error: err.message || 'Error al actualizar la factura',
         ruta: 'facturacion',
-        filtroMes:    req.body.filtro_mes    || '',
-        filtroAnio:   req.body.filtro_anio   || '',
+        filtroMes: req.body.filtro_mes || '',
+        filtroAnio: req.body.filtro_anio || '',
         filtroEstado: req.body.filtro_estado || '',
-        filtroQ:      req.body.filtro_q      || ''
+        filtroQ: req.body.filtro_q || ''
       });
     } catch (err2) {
       console.error('Error recargando formulario de edición:', err2);

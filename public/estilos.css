@@ -661,3 +661,18 @@ h2 {
   gap: 8px;
   margin-bottom: 5px;
 }
+
+.fila-3pl {
+  background-color: #fff7e0;   /* un amarillo suave */
+}
+
+.badge-3pl {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  background-color: #ffb74d;
+  color: #000;
+  font-weight: 600;
+}
